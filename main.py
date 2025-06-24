@@ -36,6 +36,7 @@ SEMESTRES = {
 ARCHIVO_BD = 'estudiantes.db'
 ENCABEZADOS_VISUALIZACION = ["T. Cédula", "Cédula", "Nombres", "Apellidos", "Carrera", "Semestre"]
 ENCABEZADOS_REQUERIDOS = set(ENCABEZADOS_VISUALIZACION)
+LIMITE_BECADOS = 216
 
 # --- Funciones de Ayuda ---
 def normalizar_texto(texto):
@@ -194,7 +195,8 @@ class AppGestorBecas(QMainWindow):
         
         if os.path.exists('icon.ico'):
             self.setWindowIcon(QIcon('icon.ico'))
-            
+        
+        self.boton_agregar_becado = None
         self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
         self.conexion_bd.row_factory = sqlite3.Row
         self.todos_los_becados = []
@@ -243,9 +245,9 @@ class AppGestorBecas(QMainWindow):
         controles_superiores.addWidget(boton_limpiar)
 
         if tipo_tabla == "becados":
-            boton_agregar = QPushButton("Agregar")
-            boton_agregar.clicked.connect(self.agregar_estudiante_becado)
-            controles_superiores.addWidget(boton_agregar)
+            self.boton_agregar_becado = QPushButton("Agregar")
+            self.boton_agregar_becado.clicked.connect(self.agregar_estudiante_becado)
+            controles_superiores.addWidget(self.boton_agregar_becado)
 
             boton_editar = QPushButton("Editar")
             boton_editar.clicked.connect(self.editar_estudiante_becado)
@@ -299,6 +301,18 @@ class AppGestorBecas(QMainWindow):
         filtro_tipocedula.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
         layout.addLayout(filtros_layout)
         return grupo
+    
+    def _actualizar_estado_botones(self):
+        """Habilita o deshabilita botones según el estado de la aplicación."""
+        count_becados = len(self.todos_los_becados)
+        limite_alcanzado = count_becados >= LIMITE_BECADOS
+        
+        if self.boton_agregar_becado:
+            self.boton_agregar_becado.setEnabled(not limite_alcanzado)
+            if limite_alcanzado:
+                self.boton_agregar_becado.setToolTip(f"Se ha alcanzado el límite de {LIMITE_BECADOS} estudiantes becados.")
+            else:
+                self.boton_agregar_becado.setToolTip("")
 
     def _aplicar_filtros(self, tipo_tabla):
         filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
@@ -392,6 +406,7 @@ class AppGestorBecas(QMainWindow):
             mostrar_mensaje_advertencia("Sin Datos", "No se encontraron registros de estudiantes debajo de los encabezados.")
             return None
         for i, fila in df_limpio.iterrows():
+            fila_real = i + header_row_index + 2
             try:
                 if str(fila.get("T. Cédula", '')).strip().upper() not in ['V', 'E', 'P']: raise ValueError("T. Cédula debe ser 'V', 'E', o 'P'.")
                 if not str(fila.get("Cédula", '')).strip().isdigit() or not (6 <= len(str(fila.get("Cédula", '')).strip()) <= 9): raise ValueError("La cédula debe contener solo números y tener entre 6 y 9 dígitos.")
@@ -401,7 +416,7 @@ class AppGestorBecas(QMainWindow):
                 if str(fila.get("Carrera", '')).strip() not in CARRERAS: raise ValueError("La carrera no es válida.")
                 if str(fila.get("Semestre", '')).strip().upper() not in SEMESTRES: raise ValueError("El semestre no es válido.")
             except (ValueError, TypeError) as e:
-                mostrar_mensaje_advertencia("Datos Inválidos", f"Error en la fila {i+1} del archivo: {e}")
+                mostrar_mensaje_advertencia("Datos Inválidos", f"Error en la fila {fila_real} del archivo: {e}")
                 return None
         
         cedulas = df_limpio['Cédula']
@@ -424,8 +439,9 @@ class AppGestorBecas(QMainWindow):
 
     def cargar_registros_a_tabla(self, tipo_tabla):
         cursor = self.conexion_bd.cursor()
-        cursor.execute(f"SELECT COUNT(*) FROM {tipo_tabla}")
-        if cursor.fetchone()[0] > 0:
+        
+        modelo_a_chequear = self.modelo_becados if tipo_tabla == 'becados' else self.modelo_inscritos
+        if modelo_a_chequear.rowCount() > 0:
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Sobrescritura")
             msg_box.setText(f"Ya existen registros en la tabla de '{tipo_tabla}'. Si cargas un nuevo archivo, los datos actuales se borrarán de forma permanente.\n\n¿Deseas continuar?")
@@ -467,6 +483,9 @@ class AppGestorBecas(QMainWindow):
                 mostrar_mensaje_info("Éxito", f"Archivo '{os.path.basename(ruta_archivo)}' cargado y validado.")
             
             elif tipo_tabla == 'becados':
+                if len(df_validado) > LIMITE_BECADOS:
+                    mostrar_mensaje_advertencia("Límite Excedido", f"El archivo contiene {len(df_validado)} estudiantes, lo que supera el límite de {LIMITE_BECADOS} becados.")
+                    return
                 try:
                     cursor.execute("BEGIN TRANSACTION")
                     cursor.execute("DELETE FROM becados")
@@ -545,10 +564,14 @@ class AppGestorBecas(QMainWindow):
             cursor.execute("SELECT id, tipo_cedula, cedula, nombres, apellidos, carrera, semestre FROM becados ORDER BY id")
             self.todos_los_becados = [dict(fila) for fila in cursor.fetchall()]
             self.poblar_tabla_becados(self.todos_los_becados)
+            self._actualizar_estado_botones()
         except sqlite3.Error as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los datos: {e}")
 
     def agregar_estudiante_becado(self):
+        if len(self.todos_los_becados) >= LIMITE_BECADOS:
+            mostrar_mensaje_advertencia("Límite Alcanzado", f"No se pueden agregar más estudiantes becados. El límite es {LIMITE_BECADOS}.")
+            return
         dialogo = DialogoEstudiante(self)
         dialogo.datos_estudiante_listos.connect(
             lambda datos: self._manejar_datos_agregar_estudiante(dialogo, datos)
