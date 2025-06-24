@@ -612,6 +612,8 @@ class AppGestorBecas(QMainWindow):
         try:
             save_func(ruta_guardado)
             mostrar_mensaje_info("Éxito", f"Reporte guardado en '{ruta_guardado}'.")
+        except PermissionError:
+            mostrar_error_critico(f"Error al Exportar {formato.upper()}", "No se pudo guardar el archivo. Asegúrate de que el archivo no esté abierto en otro programa (como Excel) y vuelve a intentarlo.")
         except Exception as e:
             mostrar_error_critico(f"Error al Exportar {formato.upper()}", f"No se pudo guardar el reporte: {e}")
 
