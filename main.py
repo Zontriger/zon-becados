@@ -2,6 +2,7 @@ import sys
 import re
 import sqlite3
 import json
+import os
 import pandas as pd
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
     QFormLayout, QDialogButtonBox, QLabel, QMenu
 )
-from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction, QIcon
 from PySide6.QtCore import Qt, Signal
 
 # --- Dependencia Adicional para PDF ---
@@ -182,6 +183,11 @@ class AppGestorBecas(QMainWindow):
         super().__init__()
         self.setWindowTitle("Gestor de Estudiantes y Becas")
         self.setGeometry(100, 100, 1200, 700)
+        
+        # Establecer el icono de la ventana
+        if os.path.exists('icon.ico'):
+            self.setWindowIcon(QIcon('icon.ico'))
+            
         self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
         self.conexion_bd.row_factory = sqlite3.Row
         self.todos_los_becados = []
