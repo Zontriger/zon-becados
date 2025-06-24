@@ -1,14 +1,15 @@
 import sys
 import re
 import sqlite3
+import json
 import pandas as pd
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView, 
+    QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView,
     QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
-    QFormLayout, QDialogButtonBox, QLabel
+    QFormLayout, QDialogButtonBox, QLabel, QMenu
 )
-from PySide6.QtGui import QStandardItemModel, QStandardItem
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PySide6.QtCore import Qt, Signal
 
 # --- Dependencia Adicional para PDF ---
@@ -17,29 +18,30 @@ try:
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib import colors
     from reportlab.lib.units import inch
-    PDF_AVAILABLE = True
+    PDF_DISPONIBLE = True
 except ImportError:
-    PDF_AVAILABLE = False
+    PDF_DISPONIBLE = False
 
 # --- Constantes ---
 CARRERAS = [
-    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones", 
+    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones",
     "Ingeniería Eléctrica", "Contaduría", "Administración de Desastres"
 ]
 SEMESTRES = {
-    "CINU": 0, "1": 1, "2": 2, "3": 3, "4": 4, 
+    "CINU": 0, "1": 1, "2": 2, "3": 3, "4": 4,
     "5": 5, "6": 6, "7": 7, "8": 8
 }
-DB_FILE = 'estudiantes.db'
-DISPLAY_HEADERS = ["Cédula", "T. Cédula", "Nombres", "Apellidos", "Carrera", "Semestre"]
+ARCHIVO_BD = 'estudiantes.db'
+ENCABEZADOS_VISUALIZACION = ["T. Cédula", "Cédula", "Nombres", "Apellidos", "Carrera", "Semestre"]
+ENCABEZADOS_REQUERIDOS = set(ENCABEZADOS_VISUALIZACION)
 
 # --- Lógica de la Base de Datos ---
-def init_db():
-    """Inicializa la base de datos y crea la tabla si no existe."""
+def inicializar_bd():
+    """Inicializa la base de datos y crea las tablas si no existen."""
     try:
-        con = sqlite3.connect(DB_FILE)
-        cur = con.cursor()
-        cur.execute('''
+        conexion = sqlite3.connect(ARCHIVO_BD)
+        cursor = conexion.cursor()
+        cursor.execute('''
             CREATE TABLE IF NOT EXISTS becados (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo_cedula TEXT NOT NULL CHECK(tipo_cedula IN ('V', 'E', 'P')),
@@ -50,443 +52,587 @@ def init_db():
                 semestre INTEGER NOT NULL CHECK(semestre BETWEEN 0 AND 8)
             )
         ''')
-        con.commit()
-        con.close()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS inscritos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                datos_fila TEXT NOT NULL
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS inscritos_encabezados (
+                id INTEGER PRIMARY KEY,
+                encabezados TEXT NOT NULL
+            )
+        ''')
+        conexion.commit()
+        conexion.close()
     except sqlite3.Error as e:
-        show_critical_error("Error de Base de Datos", f"No se pudo inicializar la base de datos: {e}")
+        mostrar_error_critico("Error de Base de Datos", f"No se pudo inicializar la base de datos: {e}")
         sys.exit(1)
 
-# --- Diálogo para Añadir/Editar Estudiante ---
-class StudentDialog(QDialog):
-    """Diálogo para crear o editar la información de un estudiante."""
-    # Señal que se emite cuando los datos están listos para ser guardados
-    student_data_ready = Signal(dict)
-
-    def __init__(self, parent=None, student_data=None):
+# --- Diálogo para Ver Información del Estudiante ---
+class DialogoVerEstudiante(QDialog):
+    """Diálogo para mostrar la información completa de un estudiante (solo lectura)."""
+    def __init__(self, parent=None, datos_estudiante=None):
         super().__init__(parent)
-        self.is_edit_mode = student_data is not None
-        title = "Editar Estudiante Becado" if self.is_edit_mode else "Añadir Estudiante Becado"
-        self.setWindowTitle(title)
+        self.setWindowTitle("Información del Estudiante")
+        layout = QFormLayout(self)
+        mapa_etiquetas = {
+            'T. Cédula': 'T. Cédula:', 'Cédula': 'Cédula:',
+            'Nombres': 'Nombres:', 'Apellidos': 'Apellidos:',
+            'Carrera': 'Carrera:', 'Semestre': 'Semestre:'
+        }
+        for clave, etiqueta in mapa_etiquetas.items():
+            valor = datos_estudiante.get(clave, 'N/A')
+            layout.addRow(QLabel(etiqueta), QLabel(str(valor)))
+        boton_cerrar = QDialogButtonBox(QDialogButtonBox.Ok)
+        boton_cerrar.accepted.connect(self.accept)
+        layout.addWidget(boton_cerrar)
 
-        self.form_layout = QFormLayout()
-        
-        # --- Widgets del formulario ---
+# --- Diálogo para Agregar/Editar Estudiante ---
+class DialogoEstudiante(QDialog):
+    """Diálogo para crear o editar la información de un estudiante."""
+    datos_estudiante_listos = Signal(dict)
+    def __init__(self, parent=None, datos_estudiante=None):
+        super().__init__(parent)
+        self.es_modo_edicion = datos_estudiante is not None
+        titulo = "Editar Estudiante Becado" if self.es_modo_edicion else "Agregar Estudiante Becado"
+        self.setWindowTitle(titulo)
+        self.diseno_formulario = QFormLayout()
+        self.cedula_input = QLineEdit()
         self.tipo_cedula_combo = QComboBox()
         self.tipo_cedula_combo.addItems(['V', 'E', 'P'])
-        self.cedula_input = QLineEdit()
         self.nombres_input = QLineEdit()
         self.apellidos_input = QLineEdit()
         self.carrera_combo = QComboBox()
         self.carrera_combo.addItems(CARRERAS)
         self.semestre_combo = QComboBox()
         self.semestre_combo.addItems(SEMESTRES.keys())
-        self.status_label = QLabel("") # Para mostrar mensajes de éxito
-        self.status_label.setStyleSheet("color: green")
+        self.etiqueta_estado = QLabel("")
+        self.etiqueta_estado.setStyleSheet("color: green")
+        self.diseno_formulario.addRow("T. Cédula:", self.tipo_cedula_combo)
+        self.diseno_formulario.addRow("Cédula:", self.cedula_input)
+        self.diseno_formulario.addRow("Nombres:", self.nombres_input)
+        self.diseno_formulario.addRow("Apellidos:", self.apellidos_input)
+        self.diseno_formulario.addRow("Carrera:", self.carrera_combo)
+        self.diseno_formulario.addRow("Semestre:", self.semestre_combo)
+        self.boton_guardar = QPushButton("Guardar")
+        self.boton_cancelar = QPushButton("Cancelar")
+        diseno_botones = QHBoxLayout()
+        diseno_botones.addStretch(1)
+        diseno_botones.addWidget(self.boton_guardar)
+        diseno_botones.addWidget(self.boton_cancelar)
+        diseno_botones.addStretch(1)
+        self.boton_guardar.clicked.connect(self._accion_guardar)
+        self.boton_cancelar.clicked.connect(self.reject)
+        diseno_principal = QVBoxLayout(self)
+        diseno_principal.addLayout(self.diseno_formulario)
+        diseno_principal.addWidget(self.etiqueta_estado)
+        diseno_principal.addLayout(diseno_botones)
+        if self.es_modo_edicion: self.llenar_datos(datos_estudiante)
 
-        self.form_layout.addRow("T. Cédula:", self.tipo_cedula_combo)
-        self.form_layout.addRow("Cédula:", self.cedula_input)
-        self.form_layout.addRow("Nombres:", self.nombres_input)
-        self.form_layout.addRow("Apellidos:", self.apellidos_input)
-        self.form_layout.addRow("Carrera:", self.carrera_combo)
-        self.form_layout.addRow("Semestre:", self.semestre_combo)
+    def _accion_guardar(self):
+        self.etiqueta_estado.clear()
+        datos = self.obtener_datos()
+        if datos:
+            self.datos_estudiante_listos.emit(datos)
+            if self.es_modo_edicion: self.accept()
+            else:
+                self.etiqueta_estado.setText(f"¡Estudiante con CI {datos['tipo_cedula']}-{datos['cedula']} guardado!")
+                self._limpiar_formulario()
 
-        # --- Botones ---
-        self.button_box = QDialogButtonBox()
-        self.save_and_close_button = self.button_box.addButton("Guardar y Cerrar", QDialogButtonBox.AcceptRole)
-        
-        if not self.is_edit_mode:
-            self.save_and_new_button = self.button_box.addButton("Guardar y Añadir Otro", QDialogButtonBox.ApplyRole)
-            self.save_and_new_button.clicked.connect(self._save_and_new_slot)
-
-        self.cancel_button = self.button_box.addButton(QDialogButtonBox.Cancel)
-
-        self.button_box.accepted.connect(self._save_and_close_slot)
-        self.button_box.rejected.connect(self.reject)
-        
-        main_layout = QVBoxLayout()
-        main_layout.addLayout(self.form_layout)
-        main_layout.addWidget(self.status_label)
-        main_layout.addWidget(self.button_box)
-        self.setLayout(main_layout)
-
-        if self.is_edit_mode:
-            self.fill_data(student_data)
-    
-    def _save_and_new_slot(self):
-        """Valida, emite los datos y limpia el formulario para un nuevo ingreso."""
-        self.status_label.clear()
-        data = self.get_data()
-        if data:
-            self.student_data_ready.emit(data)
-            self.status_label.setText(f"¡Estudiante con CI {data['cedula']} guardado!")
-            self._clear_form()
-
-    def _save_and_close_slot(self):
-        """Valida, emite los datos y cierra el diálogo."""
-        self.status_label.clear()
-        data = self.get_data()
-        if data:
-            self.student_data_ready.emit(data)
-            self.accept()
-            
-    def _clear_form(self):
-        """Limpia los campos del formulario."""
+    def _limpiar_formulario(self):
         self.cedula_input.clear()
         self.nombres_input.clear()
         self.apellidos_input.clear()
         self.tipo_cedula_combo.setCurrentIndex(0)
         self.carrera_combo.setCurrentIndex(0)
         self.semestre_combo.setCurrentIndex(0)
-        self.cedula_input.setFocus()
+        self.tipo_cedula_combo.setFocus()
 
-    def fill_data(self, data):
-        """Llena el formulario para editar."""
-        self.tipo_cedula_combo.setCurrentText(data['tipo_cedula'])
-        self.cedula_input.setText(str(data['cedula']))
-        self.nombres_input.setText(data['nombres'])
-        self.apellidos_input.setText(data['apellidos'])
-        self.carrera_combo.setCurrentText(data['carrera'])
-        semestre_key = next((key for key, val in SEMESTRES.items() if val == data['semestre']), "CINU")
-        self.semestre_combo.setCurrentText(semestre_key)
+    def llenar_datos(self, datos):
+        self.tipo_cedula_combo.setCurrentText(datos['tipo_cedula'])
+        self.cedula_input.setText(str(datos['cedula']))
+        self.nombres_input.setText(datos['nombres'])
+        self.apellidos_input.setText(datos['apellidos'])
+        self.carrera_combo.setCurrentText(datos['carrera'])
+        self.semestre_combo.setCurrentText(next((k for k, v in SEMESTRES.items() if v == datos['semestre']), "CINU"))
 
-    def get_data(self):
-        """Recupera y valida los datos del formulario."""
-        cedula_str = self.cedula_input.text().strip()
-        if not cedula_str.isdigit() or not (6 <= len(cedula_str) <= 9):
-            show_warning_message("Dato Inválido", "La cédula debe contener solo números y tener entre 6 y 9 dígitos.")
+    def obtener_datos(self):
+        cedula_texto = self.cedula_input.text().strip()
+        if not cedula_texto.isdigit() or not (6 <= len(cedula_texto) <= 9):
+            mostrar_mensaje_advertencia("Dato Inválido", "La cédula debe contener solo números y tener entre 6 y 9 dígitos.")
             return None
-        
-        nombre = self.nombres_input.text().strip()
-        apellido = self.apellidos_input.text().strip()
-        name_regex = re.compile(r"^[A-Za-zÀ-ÿ\s]+$")
-        if not (3 <= len(nombre) <= 30 and name_regex.match(nombre)):
-            show_warning_message("Dato Inválido", "El nombre debe tener entre 3 y 30 caracteres y contener solo letras y espacios.")
+        nombre = ' '.join(self.nombres_input.text().strip().split())
+        apellido = ' '.join(self.apellidos_input.text().strip().split())
+        regex_nombre_valido = re.compile(r"^[A-Za-zÀ-ÿ\s]+$")
+        if not (3 <= len(nombre) <= 30 and regex_nombre_valido.match(nombre)):
+            mostrar_mensaje_advertencia("Dato Inválido", "El nombre debe tener entre 3 y 30 caracteres, contener solo letras y espacios simples.")
             return None
-        if not (3 <= len(apellido) <= 30 and name_regex.match(apellido)):
-            show_warning_message("Dato Inválido", "El apellido debe tener entre 3 y 30 caracteres y contener solo letras y espacios.")
+        if not (3 <= len(apellido) <= 30 and regex_nombre_valido.match(apellido)):
+            mostrar_mensaje_advertencia("Dato Inválido", "El apellido debe tener entre 3 y 30 caracteres, contener solo letras y espacios simples.")
             return None
-            
-        return {
-            'tipo_cedula': self.tipo_cedula_combo.currentText(),
-            'cedula': int(cedula_str),
-            'nombres': ' '.join(nombre.split()),
-            'apellidos': ' '.join(apellido.split()),
-            'carrera': self.carrera_combo.currentText(),
-            'semestre': SEMESTRES[self.semestre_combo.currentText()]
-        }
+        return {'tipo_cedula': self.tipo_cedula_combo.currentText(), 'cedula': int(cedula_texto),
+                'nombres': nombre, 'apellidos': apellido, 'carrera': self.carrera_combo.currentText(),
+                'semestre': SEMESTRES[self.semestre_combo.currentText()]}
 
 # --- Ventana Principal ---
-class ScholarshipManagerApp(QMainWindow):
+class AppGestorBecas(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gestor de Estudiantes y Becas")
         self.setGeometry(100, 100, 1200, 700)
+        self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
+        self.conexion_bd.row_factory = sqlite3.Row
+        self.todos_los_becados = []
+        self.todos_los_inscritos = []
+        self.encabezados_inscritos = []
+        self._configurar_ui()
+        self.cargar_estudiantes_becados()
+        self.cargar_estudiantes_inscritos_desde_bd()
 
-        self.db_con = sqlite3.connect(DB_FILE)
-        self.db_con.row_factory = sqlite3.Row
+    def _configurar_ui(self):
+        widget_principal = QWidget(self)
+        self.setCentralWidget(widget_principal)
+        diseno_principal = QHBoxLayout(widget_principal)
+        grupo_inscritos = self.crear_grupo_tabla("Estudiantes Inscritos", "inscritos")
+        self.tabla_inscritos, self.modelo_inscritos = self._crear_vista_tabla()
+        self.tabla_inscritos.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'inscritos'))
+        grupo_inscritos.layout().addWidget(self.tabla_inscritos)
+        grupo_becados = self.crear_grupo_tabla("Estudiantes Becados", "becados")
+        self.tabla_becados, self.modelo_becados = self._crear_vista_tabla()
+        self.tabla_becados.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'becados'))
+        grupo_becados.layout().addWidget(self.tabla_becados)
+        diseno_principal.addWidget(grupo_inscritos, 1)
+        diseno_principal.addWidget(grupo_becados, 1)
+
+    def _crear_vista_tabla(self):
+        tabla = QTableView()
+        tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
+        tabla.setSelectionMode(QAbstractItemView.SingleSelection)
+        modelo = QStandardItemModel()
+        tabla.setModel(modelo)
+        return tabla, modelo
+
+    def crear_grupo_tabla(self, titulo, tipo_tabla):
+        grupo = QGroupBox(titulo)
+        layout = QVBoxLayout(grupo)
         
-        self._setup_ui()
-        self.load_scholarship_students()
-
-    def _setup_ui(self):
-        main_widget = QWidget()
-        main_layout = QHBoxLayout(main_widget)
-        self.setCentralWidget(main_widget)
-
-        enrolled_group = self.create_table_group("Estudiantes Inscritos (desde Excel)", "load_enrolled")
-        self.enrolled_table, self.enrolled_model = self._create_table_view()
-        enrolled_group.layout().addWidget(self.enrolled_table)
-        
-        scholarship_group = self.create_table_group("Estudiantes Becados (Base de Datos)", "scholarship")
-        self.scholarship_table, self.scholarship_model = self._create_table_view()
-        scholarship_group.layout().addWidget(self.scholarship_table)
-
-        main_layout.addWidget(enrolled_group, 1)
-        main_layout.addWidget(scholarship_group, 1)
-        
-    def _create_table_view(self):
-        table = QTableView()
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SingleSelection)
-        table.horizontalHeader().setStretchLastSection(True)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        model = QStandardItemModel()
-        table.setModel(model)
-        return table, model
-
-    def create_table_group(self, title, mode):
-        group = QGroupBox(title)
-        layout = QVBoxLayout(group)
-        
-        if mode == "load_enrolled":
-            load_button = QPushButton("Cargar Archivo Excel")
-            load_button.clicked.connect(self.load_enrolled_students)
-            layout.addWidget(load_button)
-        elif mode == "scholarship":
-            buttons_layout = QHBoxLayout()
-            add_button = QPushButton("Añadir")
-            edit_button = QPushButton("Editar")
-            delete_button = QPushButton("Eliminar")
-            add_button.clicked.connect(self.add_scholarship_student)
-            edit_button.clicked.connect(self.edit_scholarship_student)
-            delete_button.clicked.connect(self.delete_scholarship_student)
-            buttons_layout.addWidget(add_button)
-            buttons_layout.addWidget(edit_button)
-            buttons_layout.addWidget(delete_button)
+        controles_superiores = QHBoxLayout()
+        if tipo_tabla == "inscritos":
+            boton_cargar = QPushButton("Cargar Registros")
+            boton_cargar.clicked.connect(lambda: self.cargar_registros_a_tabla('inscritos'))
+            controles_superiores.addWidget(boton_cargar)
             
-            export_layout = QHBoxLayout()
-            export_excel_button = QPushButton("Exportar a Excel")
-            export_excel_button.clicked.connect(self.export_scholarship_excel)
-            export_layout.addWidget(export_excel_button)
+            boton_limpiar = QPushButton("Limpiar Registros")
+            boton_limpiar.clicked.connect(lambda: self.limpiar_registros_tabla('inscritos'))
+            controles_superiores.addWidget(boton_limpiar)
+        else: # becados
+            boton_agregar = QPushButton("Agregar")
+            boton_agregar.clicked.connect(self.agregar_estudiante_becado)
+            controles_superiores.addWidget(boton_agregar)
 
-            if PDF_AVAILABLE:
-                export_pdf_button = QPushButton("Exportar a PDF")
-                export_pdf_button.clicked.connect(self.export_scholarship_pdf)
-                export_layout.addWidget(export_pdf_button)
-            
-            layout.addLayout(buttons_layout)
-            layout.addLayout(export_layout)
-            
-        return group
+            boton_editar = QPushButton("Editar")
+            boton_editar.clicked.connect(self.editar_estudiante_becado)
+            controles_superiores.addWidget(boton_editar)
 
-    def populate_scholarship_table(self, data):
-        self.scholarship_model.clear()
-        self.scholarship_model.setHorizontalHeaderLabels(DISPLAY_HEADERS)
+            boton_eliminar = QPushButton("Eliminar")
+            boton_eliminar.clicked.connect(self.eliminar_estudiante_becado)
+            controles_superiores.addWidget(boton_eliminar)
 
-        key_map = {
-            "Cédula": "cedula", "T. Cédula": "tipo_cedula", "Nombres": "nombres", 
-            "Apellidos": "apellidos", "Carrera": "carrera", "Semestre": "semestre"
-        }
+            boton_exportar = QPushButton("Exportar")
+            menu_exportar = QMenu(self)
+            accion_excel = QAction("Exportar a Excel (.xlsx)", self)
+            accion_excel.triggered.connect(lambda: self.exportar_datos('excel', tipo_tabla))
+            menu_exportar.addAction(accion_excel)
+            accion_csv = QAction("Exportar a CSV (.csv)", self)
+            accion_csv.triggered.connect(lambda: self.exportar_datos('csv', tipo_tabla))
+            menu_exportar.addAction(accion_csv)
+            if PDF_DISPONIBLE:
+                accion_pdf = QAction("Exportar a PDF (.pdf)", self)
+                accion_pdf.triggered.connect(lambda: self.exportar_datos('pdf', tipo_tabla))
+                menu_exportar.addAction(accion_pdf)
+            boton_exportar.setMenu(menu_exportar)
+            controles_superiores.addWidget(boton_exportar)
+        layout.addLayout(controles_superiores)
+        
+        filtros_layout = QHBoxLayout()
+        setattr(self, f"filtro_busqueda_{tipo_tabla}", QLineEdit())
+        setattr(self, f"filtro_carrera_{tipo_tabla}", QComboBox())
+        setattr(self, f"filtro_semestre_{tipo_tabla}", QComboBox())
+        setattr(self, f"filtro_tipocedula_{tipo_tabla}", QComboBox())
 
-        for row_data in data:
-            row_items = []
-            for header in DISPLAY_HEADERS:
-                key = key_map[header]
-                val = row_data[key]
+        filtro_busqueda = getattr(self, f"filtro_busqueda_{tipo_tabla}")
+        filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}")
+        filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}")
+        filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}")
+
+        filtro_busqueda.setPlaceholderText("Buscar...")
+        filtro_carrera.addItems(["Todas las Carreras"] + CARRERAS)
+        filtro_semestre.addItems(["Todos los Semestres"] + list(SEMESTRES.keys()))
+        filtro_tipocedula.addItems(["Todos los Tipos"] + ['V', 'E', 'P'])
+        
+        filtros_layout.addWidget(filtro_busqueda)
+        filtros_layout.addWidget(filtro_carrera)
+        filtros_layout.addWidget(filtro_semestre)
+        filtros_layout.addWidget(filtro_tipocedula)
+
+        filtro_busqueda.textChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
+        filtro_carrera.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
+        filtro_semestre.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
+        filtro_tipocedula.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
+        layout.addLayout(filtros_layout)
+        return grupo
+
+    def _aplicar_filtros(self, tipo_tabla):
+        filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
+        filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}").currentText()
+        filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}").currentText()
+        texto_busqueda = getattr(self, f"filtro_busqueda_{tipo_tabla}").text().lower()
+
+        if tipo_tabla == 'becados':
+            resultados = self.todos_los_becados
+            if filtro_carrera != "Todas las Carreras":
+                resultados = [r for r in resultados if r['carrera'] == filtro_carrera]
+            if filtro_semestre != "Todos los Semestres":
+                semestre_num = SEMESTRES.get(filtro_semestre)
+                resultados = [r for r in resultados if r['semestre'] == semestre_num]
+            if filtro_tipocedula != "Todos los Tipos":
+                resultados = [r for r in resultados if r['tipo_cedula'] == filtro_tipocedula]
+            if texto_busqueda:
+                resultados = [r for r in resultados if texto_busqueda in str(r['cedula']).lower() or
+                              texto_busqueda in r['nombres'].lower() or texto_busqueda in r['apellidos'].lower()]
+            self.poblar_tabla_becados(resultados)
+        
+        elif tipo_tabla == 'inscritos':
+            col_carrera = self.encabezados_inscritos.index("Carrera") if "Carrera" in self.encabezados_inscritos else -1
+            col_semestre = self.encabezados_inscritos.index("Semestre") if "Semestre" in self.encabezados_inscritos else -1
+            col_tipocedula = self.encabezados_inscritos.index("T. Cédula") if "T. Cédula" in self.encabezados_inscritos else -1
+
+            for row in range(self.modelo_inscritos.rowCount()):
+                mostrar_fila = True
+                if col_carrera != -1 and filtro_carrera != "Todas las Carreras" and self.modelo_inscritos.item(row, col_carrera).text() != filtro_carrera:
+                    mostrar_fila = False
+                if col_semestre != -1 and filtro_semestre != "Todos los Semestres" and self.modelo_inscritos.item(row, col_semestre).text() != filtro_semestre:
+                    mostrar_fila = False
+                if col_tipocedula != -1 and filtro_tipocedula != "Todos los Tipos" and self.modelo_inscritos.item(row, col_tipocedula).text() != filtro_tipocedula:
+                    mostrar_fila = False
                 
-                if key == 'semestre':
-                    semestre_key = next((k for k, v in SEMESTRES.items() if v == val), "")
-                    item = QStandardItem(semestre_key)
-                else:
-                    item = QStandardItem(str(val))
-                row_items.append(item)
-            
-            if row_items:
-                row_items[0].setData(row_data['id'], Qt.UserRole)
-            
-            self.scholarship_model.appendRow(row_items)
-        
-        self.scholarship_table.setModel(self.scholarship_model)
+                if texto_busqueda:
+                    fila_texto = "".join([self.modelo_inscritos.item(row, col).text().lower() for col in range(self.modelo_inscritos.columnCount())])
+                    if texto_busqueda not in fila_texto:
+                        mostrar_fila = False
+                
+                self.tabla_inscritos.setRowHidden(row, not mostrar_fila)
 
-    def load_enrolled_students(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Seleccionar archivo Excel", "", "Archivos de Excel (*.xlsx *.xls)")
-        if not file_path: return
-        try:
-            df = pd.read_excel(file_path)
-            self.enrolled_model.clear()
-            self.enrolled_model.setHorizontalHeaderLabels(df.columns)
-            for _, row in df.iterrows():
-                items = [QStandardItem(str(field)) for field in row]
-                self.enrolled_model.appendRow(items)
-            show_info_message("Éxito", f"Archivo '{file_path.split('/')[-1]}' cargado.")
-        except Exception as e:
-            show_critical_error("Error de Carga", f"No se pudo cargar el archivo: {e}")
-
-    def load_scholarship_students(self):
-        try:
-            cur = self.db_con.cursor()
-            cur.execute("SELECT id, tipo_cedula, cedula, nombres, apellidos, carrera, semestre FROM becados ORDER BY id")
-            students = cur.fetchall()
-            self.populate_scholarship_table([dict(row) for row in students])
-        except sqlite3.Error as e:
-            show_critical_error("Error de Base de Datos", f"No se pudieron cargar los datos: {e}")
-
-    def add_scholarship_student(self):
-        dialog = StudentDialog(self)
-        dialog.student_data_ready.connect(self._handle_add_student_data)
-        dialog.exec()
-
-    def _handle_add_student_data(self, data):
-        try:
-            cur = self.db_con.cursor()
-            cur.execute(
-                "INSERT INTO becados (tipo_cedula, cedula, nombres, apellidos, carrera, semestre) VALUES (?, ?, ?, ?, ?, ?)",
-                (data['tipo_cedula'], data['cedula'], data['nombres'], data['apellidos'], data['carrera'], data['semestre'])
-            )
-            self.db_con.commit()
-            self.load_scholarship_students()
-        except sqlite3.IntegrityError:
-            show_warning_message("Error", f"La cédula {data['cedula']} ya está registrada.")
-        except sqlite3.Error as e:
-            show_critical_error("Error de DB", f"No se pudo añadir el estudiante: {e}")
-
-    def edit_scholarship_student(self):
-        selected_rows = self.scholarship_table.selectionModel().selectedRows()
-        if not selected_rows:
-            show_warning_message("Atención", "Selecciona un estudiante para editar.")
+    def poblar_tabla_becados(self, datos):
+        self.modelo_becados.clear()
+        self.modelo_becados.setHorizontalHeaderLabels(ENCABEZADOS_VISUALIZACION)
+        if not datos:
+            self.tabla_becados.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             return
+        self.tabla_becados.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        for datos_fila in datos:
+            elementos_fila = []
+            for col_index, h in enumerate(ENCABEZADOS_VISUALIZACION):
+                valor = datos_fila.get({"T. Cédula": "tipo_cedula", "Cédula": "cedula", "Nombres": "nombres", "Apellidos": "apellidos", "Carrera": "carrera", "Semestre": "semestre"}[h], '')
+                item_texto = next((k for k, v in SEMESTRES.items() if v == valor), "") if h == 'Semestre' else str(valor)
+                elemento = QStandardItem(item_texto)
+                if h == "T. Cédula": elemento.setData(datos_fila.get('id'), Qt.UserRole)
+                if col_index in [0, 5]: elemento.setTextAlignment(Qt.AlignCenter)
+                elementos_fila.append(elemento)
+            self.modelo_becados.appendRow(elementos_fila)
+        for i in range(len(ENCABEZADOS_VISUALIZACION)): self.tabla_becados.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch if i in [2,3,4] else QHeaderView.ResizeToContents)
 
-        row_index = selected_rows[0].row()
-        student_id = self.scholarship_model.item(row_index, 0).data(Qt.UserRole)
-        
-        try:
-            cur = self.db_con.cursor()
-            cur.execute("SELECT * FROM becados WHERE id = ?", (student_id,))
-            student_data = dict(cur.fetchone())
-
-            dialog = StudentDialog(self, student_data=student_data)
-            dialog.student_data_ready.connect(lambda data: self._handle_edit_student_data(student_id, data))
-            dialog.exec()
-
-        except sqlite3.Error as e:
-            show_critical_error("Error de DB", f"No se pudo cargar para editar: {e}")
-            
-    def _handle_edit_student_data(self, student_id, data):
-        try:
-            cur = self.db_con.cursor()
-            cur.execute(
-                "UPDATE becados SET tipo_cedula=?, cedula=?, nombres=?, apellidos=?, carrera=?, semestre=? WHERE id=?",
-                (data['tipo_cedula'], data['cedula'], data['nombres'], data['apellidos'], 
-                 data['carrera'], data['semestre'], student_id)
-            )
-            self.db_con.commit()
-            self.load_scholarship_students()
-            show_info_message("Éxito", "Estudiante actualizado.")
-        except sqlite3.IntegrityError:
-            show_warning_message("Error", "La cédula ya existe para otro estudiante.")
-        except sqlite3.Error as e:
-            show_critical_error("Error de DB", f"No se pudo actualizar: {e}")
-
-    def delete_scholarship_student(self):
-        selected_rows = self.scholarship_table.selectionModel().selectedRows()
-        if not selected_rows:
-            show_warning_message("Atención", "Selecciona un estudiante para eliminar.")
-            return
-            
-        row_index = selected_rows[0].row()
-        student_id = self.scholarship_model.item(row_index, 0).data(Qt.UserRole)
-        nombre = self.scholarship_model.item(row_index, 2).text()
-
-        reply = QMessageBox.question(self, "Confirmar", f"¿Seguro que quieres eliminar a {nombre}?",
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
+    def _validar_dataframe_importado(self, df, is_csv=False):
+        header_row_index, start_col_index = -1, -1
+        for i, row in df.iterrows():
+            if ENCABEZADOS_REQUERIDOS.issubset(set(row.astype(str).values)):
+                header_row_index = i
+                for j, col_name in enumerate(row.astype(str)):
+                    if col_name in ENCABEZADOS_REQUERIDOS:
+                        start_col_index = j; break
+                break
+        if header_row_index == -1:
+            msg = ("No se encontraron los encabezados correctos en el archivo CSV.\n\n"
+                   "Asegúrese de que su archivo use como separador ',' o ';' y contenga las siguientes columnas:\n\n"
+                   if is_csv else "No se encontraron los encabezados correctos en el archivo.\n\n"
+                   "Asegúrese de que la primera hoja contenga las siguientes columnas:\n\n")
+            mostrar_mensaje_advertencia("Error de Formato", msg + f"{', '.join(ENCABEZADOS_VISUALIZACION)}")
+            return None
+        new_header = df.iloc[header_row_index, start_col_index:]
+        df_limpio = df.iloc[header_row_index + 1:, start_col_index:].copy()
+        df_limpio.columns = new_header
+        df_limpio.dropna(axis=1, how='all', inplace=True); df_limpio.dropna(how='all', inplace=True)
+        df_limpio = df_limpio.reset_index(drop=True)
+        if df_limpio.empty:
+            mostrar_mensaje_advertencia("Sin Datos", "No se encontraron registros de estudiantes debajo de los encabezados.")
+            return None
+        for i, fila in df_limpio.iterrows():
             try:
-                cur = self.db_con.cursor()
-                cur.execute("DELETE FROM becados WHERE id = ?", (student_id,))
-                self.db_con.commit()
-                self.load_scholarship_students()
-                show_info_message("Éxito", "Estudiante eliminado.")
+                if str(fila.get("T. Cédula", '')).strip().upper() not in ['V', 'E', 'P']: raise ValueError("T. Cédula debe ser 'V', 'E', o 'P'.")
+                if not str(fila.get("Cédula", '')).strip().isdigit() or not (6 <= len(str(fila.get("Cédula", '')).strip()) <= 9): raise ValueError("La cédula debe contener solo números y tener entre 6 y 9 dígitos.")
+                for campo in ["Nombres", "Apellidos"]:
+                    valor = ' '.join(str(fila.get(campo, '')).strip().split())
+                    if not (3 <= len(valor) <= 30 and re.match(r"^[A-Za-zÀ-ÿ\s]+$", valor)): raise ValueError(f"El campo '{campo}' no es válido.")
+                if str(fila.get("Carrera", '')).strip() not in CARRERAS: raise ValueError("La carrera no es válida.")
+                if str(fila.get("Semestre", '')).strip().upper() not in SEMESTRES: raise ValueError("El semestre no es válido.")
+            except (ValueError, TypeError) as e:
+                mostrar_mensaje_advertencia("Datos Inválidos", f"Error en la fila {i+1} del archivo: {e}")
+                return None
+        return df_limpio
+
+    def cargar_registros_a_tabla(self, tipo_tabla):
+        cursor = self.conexion_bd.cursor()
+        cursor.execute(f"SELECT COUNT(*) FROM {tipo_tabla}")
+        if cursor.fetchone()[0] > 0:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Sobrescritura")
+            msg_box.setText(f"Ya existen registros en '{tipo_tabla}'. Si cargas un nuevo archivo, los datos actuales se borrarán de forma permanente.\n\n¿Deseas continuar?")
+            boton_si = msg_box.addButton("Sí", QMessageBox.YesRole); msg_box.addButton("No", QMessageBox.NoRole)
+            msg_box.exec()
+            if msg_box.clickedButton() != boton_si: return
+        ruta_archivo, _ = QFileDialog.getOpenFileName(self, "Cargar Registros", "", "Archivos Soportados (*.xlsx *.xls *.csv)")
+        if not ruta_archivo: return
+        try:
+            is_csv = ruta_archivo.endswith('.csv')
+            if is_csv:
+                try:
+                    with open(ruta_archivo, 'r', encoding='utf-8') as f: first_line = f.readline()
+                    sep = ';' if first_line.count(';') > first_line.count(',') else ','
+                    df = pd.read_csv(ruta_archivo, header=None, dtype=str, sep=sep, encoding='utf-8')
+                except (UnicodeDecodeError, KeyError):
+                    with open(ruta_archivo, 'r', encoding='latin-1') as f: first_line = f.readline()
+                    sep = ';' if first_line.count(';') > first_line.count(',') else ','
+                    df = pd.read_csv(ruta_archivo, header=None, dtype=str, sep=sep, encoding='latin-1')
+            else:
+                df = pd.read_excel(ruta_archivo, sheet_name=0, header=None, dtype=str)
+            df_validado = self._validar_dataframe_importado(df, is_csv=is_csv)
+            if df_validado is not None:
+                if tipo_tabla == 'inscritos':
+                    self.encabezados_inscritos = df_validado.columns.tolist()
+                    filas_dict = df_validado.to_dict('records')
+                    self.todos_los_inscritos = filas_dict
+                    filas_json = [json.dumps(r) for r in filas_dict]
+                    cursor.execute("DELETE FROM inscritos"); cursor.execute("DELETE FROM inscritos_encabezados")
+                    cursor.execute("INSERT INTO inscritos_encabezados (id, encabezados) VALUES (1, ?)", (json.dumps(self.encabezados_inscritos),))
+                    cursor.executemany("INSERT INTO inscritos (datos_fila) VALUES (?)", [(fila,) for fila in filas_json])
+                    self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
+                self.conexion_bd.commit()
+                mostrar_mensaje_info("Éxito", f"Archivo '{ruta_archivo.split('/')[-1]}' cargado y validado.")
+        except Exception as e:
+            mostrar_error_critico("Error de Carga", f"No se pudo procesar el archivo: {e}")
+
+    def cargar_estudiantes_inscritos_desde_bd(self):
+        try:
+            cursor = self.conexion_bd.cursor()
+            cursor.execute("SELECT encabezados FROM inscritos_encabezados WHERE id = 1")
+            res_encabezados = cursor.fetchone()
+            if not res_encabezados: 
+                self.modelo_inscritos.clear(); self.modelo_inscritos.setHorizontalHeaderLabels([]); return
+            self.encabezados_inscritos = json.loads(res_encabezados['encabezados'])
+            cursor.execute("SELECT datos_fila FROM inscritos")
+            self.todos_los_inscritos = [json.loads(fila['datos_fila']) for fila in cursor.fetchall()]
+            self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
+        except sqlite3.Error as e:
+            mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los estudiantes inscritos: {e}")
+
+    def poblar_tabla_inscritos(self, encabezados, filas):
+        self.modelo_inscritos.clear()
+        self.modelo_inscritos.setHorizontalHeaderLabels(encabezados)
+        if not filas:
+            self.tabla_inscritos.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            return
+        self.tabla_inscritos.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        for fila_datos in filas:
+            elementos = [QStandardItem(str(fila_datos.get(enc, ''))) for enc in encabezados]
+            for i, enc in enumerate(encabezados):
+                if enc in ["T. Cédula", "Semestre"]: elementos[i].setTextAlignment(Qt.AlignCenter)
+            self.modelo_inscritos.appendRow(elementos)
+        for i in range(len(encabezados)): self.tabla_inscritos.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch if encabezados[i] not in ["T. Cédula", "Semestre"] else QHeaderView.ResizeToContents)
+
+    def limpiar_registros_tabla(self, tipo_tabla):
+        titulo = f"¿Estás seguro de limpiar el registro de los estudiantes {tipo_tabla}?"
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Limpieza"); msg_box.setText(titulo)
+        boton_si = msg_box.addButton("Sí", QMessageBox.YesRole); msg_box.addButton("No", QMessageBox.NoRole)
+        msg_box.exec()
+        if msg_box.clickedButton() == boton_si:
+            try:
+                cursor = self.conexion_bd.cursor()
+                if tipo_tabla == 'inscritos':
+                    cursor.execute("DELETE FROM inscritos"); cursor.execute("DELETE FROM inscritos_encabezados")
+                    self.modelo_inscritos.clear(); self.modelo_inscritos.setHorizontalHeaderLabels([])
+                else: # becados
+                    cursor.execute("DELETE FROM becados")
+                    self.modelo_becados.clear(); self.modelo_becados.setHorizontalHeaderLabels(ENCABEZADOS_VISUALIZACION)
+                self.conexion_bd.commit()
+                mostrar_mensaje_info("Éxito", f"Se han borrado los registros de estudiantes {tipo_tabla}.")
             except sqlite3.Error as e:
-                show_critical_error("Error de DB", f"No se pudo eliminar: {e}")
+                mostrar_error_critico("Error de DB", f"No se pudieron borrar los registros: {e}")
 
-    def get_scholarship_data_as_df(self):
-        """Obtiene los datos de los becados como un DataFrame de Pandas con cabeceras amigables."""
-        cur = self.db_con.cursor()
-        cur.execute("SELECT cedula, tipo_cedula, nombres, apellidos, carrera, semestre FROM becados")
-        students = cur.fetchall()
-        if not students:
-            return pd.DataFrame(columns=DISPLAY_HEADERS)
-
-        df = pd.DataFrame([dict(row) for row in students])
-        
-        inv_semestres = {v: k for k, v in SEMESTRES.items()}
-        df['semestre'] = df['semestre'].map(inv_semestres)
-        
-        column_rename_map = {
-            'cedula': 'Cédula', 'tipo_cedula': 'T. Cédula', 'nombres': 'Nombres',
-            'apellidos': 'Apellidos', 'carrera': 'Carrera', 'semestre': 'Semestre'
-        }
-        df.rename(columns=column_rename_map, inplace=True)
-        
-        return df[DISPLAY_HEADERS]
-
-    def export_scholarship_excel(self):
-        if self.scholarship_model.rowCount() == 0:
-            show_warning_message("Atención", "No hay estudiantes para exportar.")
-            return
-        
-        df = self.get_scholarship_data_as_df()
-        save_path, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte Excel", "reporte_becados.xlsx", "Archivos Excel (*.xlsx)")
-        if not save_path: return
-
+    def cargar_estudiantes_becados(self):
         try:
-            df.to_excel(save_path, index=False)
-            show_info_message("Éxito", f"Reporte guardado en '{save_path}'.")
-        except Exception as e:
-            show_critical_error("Error al Exportar", f"No se pudo guardar el reporte: {e}")
+            cursor = self.conexion_bd.cursor()
+            cursor.execute("SELECT id, tipo_cedula, cedula, nombres, apellidos, carrera, semestre FROM becados ORDER BY id")
+            self.todos_los_becados = [dict(fila) for fila in cursor.fetchall()]
+            self.poblar_tabla_becados(self.todos_los_becados)
+        except sqlite3.Error as e:
+            mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los datos: {e}")
 
-    def export_scholarship_pdf(self):
-        if self.scholarship_model.rowCount() == 0:
-            show_warning_message("Atención", "No hay estudiantes para exportar.")
-            return
-            
-        save_path, _ = QFileDialog.getSaveFileName(self, "Guardar Reporte PDF", "reporte_becados.pdf", "Archivos PDF (*.pdf)")
-        if not save_path: return
+    def agregar_estudiante_becado(self):
+        DialogoEstudiante(self).datos_estudiante_listos.connect(self._manejar_datos_agregar_estudiante)
+        DialogoEstudiante(self).exec()
 
+    def _manejar_datos_agregar_estudiante(self, datos):
         try:
-            doc = SimpleDocTemplate(save_path)
-            styles = getSampleStyleSheet()
-            story = []
-
-            story.append(Paragraph("Reporte de Estudiantes Becados", styles['h1']))
-            story.append(Spacer(1, 0.2*inch))
-
-            df = self.get_scholarship_data_as_df()
-            if df.empty:
-                show_warning_message("Atención", "No hay datos para generar el PDF.")
-                return
-
-            table_data = [df.columns.tolist()] + df.values.tolist()
+            cursor = self.conexion_bd.cursor()
+            cursor.execute("INSERT INTO becados (tipo_cedula, cedula, nombres, apellidos, carrera, semestre) VALUES (?, ?, ?, ?, ?, ?)",
+                           (datos['tipo_cedula'], datos['cedula'], datos['nombres'], datos['apellidos'], datos['carrera'], datos['semestre']))
+            self.conexion_bd.commit()
+            self.cargar_estudiantes_becados()
+        except sqlite3.IntegrityError:
+            mostrar_mensaje_advertencia("Error", f"La cédula {datos['cedula']} ya está registrada.")
+        except sqlite3.Error as e:
+            mostrar_error_critico("Error de DB", f"No se pudo agregar el estudiante: {e}")
             
-            table = Table(table_data)
-            style = TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0,0), (-1,0), 12),
-                ('BACKGROUND', (0,1), (-1,-1), colors.beige),
-                ('GRID', (0,0), (-1,-1), 1, colors.black)
-            ])
-            table.setStyle(style)
-            
-            story.append(table)
-            doc.build(story)
-            show_info_message("Éxito", f"Reporte PDF guardado en '{save_path}'.")
+    def ver_registro_doble_clic(self, index, tipo_tabla):
+        if tipo_tabla == 'becados':
+            id_estudiante = self.modelo_becados.item(index.row(), 0).data(Qt.UserRole)
+            if id_estudiante is None: return
+            datos_estudiante_db = next((r for r in self.todos_los_becados if r['id'] == id_estudiante), None)
+            if datos_estudiante_db:
+                datos_para_dialogo = {'T. Cédula': datos_estudiante_db.get('tipo_cedula'), 'Cédula': datos_estudiante_db.get('cedula'),
+                                      'Nombres': datos_estudiante_db.get('nombres'), 'Apellidos': datos_estudiante_db.get('apellidos'),
+                                      'Carrera': datos_estudiante_db.get('carrera'), 
+                                      'Semestre': next((k for k, v in SEMESTRES.items() if v == datos_estudiante_db.get('semestre')), "N/A")}
+                DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo).exec()
+        elif tipo_tabla == 'inscritos':
+            datos_para_dialogo = {self.modelo_inscritos.headerData(col, Qt.Horizontal): self.modelo_inscritos.item(index.row(), col).text()
+                                  for col in range(self.modelo_inscritos.columnCount())}
+            DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo).exec()
+
+    def editar_estudiante_becado(self):
+        filas_seleccionadas = self.tabla_becados.selectionModel().selectedRows()
+        if not filas_seleccionadas:
+            mostrar_mensaje_advertencia("Atención", "Selecciona un estudiante para editar.")
+            return
+        id_estudiante = self.modelo_becados.item(filas_seleccionadas[0].row(), 0).data(Qt.UserRole)
+        if id_estudiante is None: return
+        try:
+            cursor = self.conexion_bd.cursor()
+            cursor.execute("SELECT * FROM becados WHERE id = ?", (id_estudiante,))
+            datos_estudiante = dict(cursor.fetchone())
+            dialogo = DialogoEstudiante(self, datos_estudiante=datos_estudiante)
+            dialogo.datos_estudiante_listos.connect(lambda datos: self._manejar_datos_editar_estudiante(id_estudiante, datos))
+            dialogo.exec()
+        except sqlite3.Error as e:
+            mostrar_error_critico("Error de DB", f"No se pudo cargar para editar: {e}")
+
+    def _manejar_datos_editar_estudiante(self, id_estudiante, datos):
+        try:
+            cursor = self.conexion_bd.cursor()
+            cursor.execute("UPDATE becados SET tipo_cedula=?, cedula=?, nombres=?, apellidos=?, carrera=?, semestre=? WHERE id=?",
+                           (datos['tipo_cedula'], datos['cedula'], datos['nombres'], datos['apellidos'], datos['carrera'], datos['semestre'], id_estudiante))
+            self.conexion_bd.commit()
+            self.cargar_estudiantes_becados()
+            mostrar_mensaje_info("Éxito", "Estudiante actualizado.")
+        except sqlite3.IntegrityError:
+            mostrar_mensaje_advertencia("Error", "La cédula ya existe para otro estudiante.")
+        except sqlite3.Error as e:
+            mostrar_error_critico("Error de DB", f"No se pudo actualizar: {e}")
+
+    def eliminar_estudiante_becado(self):
+        filas_seleccionadas = self.tabla_becados.selectionModel().selectedRows()
+        if not filas_seleccionadas:
+            mostrar_mensaje_advertencia("Atención", "Selecciona un estudiante para eliminar.")
+            return
+        id_estudiante = self.modelo_becados.item(filas_seleccionadas[0].row(), 0).data(Qt.UserRole)
+        nombre = self.modelo_becados.item(filas_seleccionadas[0].row(), 2).text()
+        if id_estudiante is None: return
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Eliminación")
+        msg_box.setText(f"¿Seguro que quieres eliminar a {nombre}?")
+        boton_si = msg_box.addButton("Sí", QMessageBox.YesRole); msg_box.addButton("No", QMessageBox.NoRole)
+        msg_box.exec()
+        if msg_box.clickedButton() == boton_si:
+            try:
+                cursor = self.conexion_bd.cursor()
+                cursor.execute("DELETE FROM becados WHERE id = ?", (id_estudiante,))
+                self.conexion_bd.commit()
+                self.cargar_estudiantes_becados()
+                mostrar_mensaje_info("Éxito", "Estudiante eliminado.")
+            except sqlite3.Error as e:
+                mostrar_error_critico("Error de DB", f"No se pudo eliminar: {e}")
+
+    def obtener_datos_df(self, tipo_tabla):
+        if tipo_tabla == 'becados':
+            if not self.todos_los_becados: return pd.DataFrame()
+            df = pd.DataFrame(self.todos_los_becados)
+            df['Semestre'] = df['semestre'].map({v: k for k, v in SEMESTRES.items()})
+            df.rename(columns={'tipo_cedula': 'T. Cédula', 'cedula': 'Cédula', 'nombres': 'Nombres', 'apellidos': 'Apellidos', 'carrera': 'Carrera'}, inplace=True)
+            df['Cédula'] = pd.to_numeric(df['Cédula'], errors='coerce')
+            df['Semestre'] = df['Semestre'].apply(lambda x: int(x) if x.isdigit() else x)
+            return df[['T. Cédula', 'Cédula', 'Nombres', 'Apellidos', 'Carrera', 'Semestre']]
+        elif tipo_tabla == 'inscritos':
+            if not self.todos_los_inscritos: return pd.DataFrame()
+            df = pd.DataFrame(self.todos_los_inscritos)
+            if "Semestre" in df.columns: df["Semestre"] = pd.to_numeric(df["Semestre"], errors='coerce').fillna(df["Semestre"])
+            return df
+
+    def exportar_datos(self, formato, tipo_tabla):
+        modelo = self.modelo_becados if tipo_tabla == 'becados' else self.modelo_inscritos
+        if modelo.rowCount() == 0:
+            mostrar_mensaje_advertencia("Atención", f"No hay estudiantes {tipo_tabla} para exportar.")
+            return
+        df = self.obtener_datos_df(tipo_tabla)
+        if df.empty:
+            mostrar_mensaje_advertencia("Atención", "No hay datos para exportar.")
+            return
+
+        default_filename = f"reporte_{tipo_tabla}.{formato if formato != 'excel' else 'xlsx'}"
+        file_filter = f"Archivos {formato.upper()} (*.{formato if formato != 'excel' else 'xlsx'})"
+        if formato == 'excel': save_func = lambda path: df.to_excel(path, index=False)
+        elif formato == 'csv': save_func = lambda path: df.to_csv(path, index=False, encoding='utf-8-sig')
+        elif formato == 'pdf':
+            def save_func(path):
+                df_pdf = df.astype(str)
+                doc = SimpleDocTemplate(path)
+                story = [Paragraph(f"Reporte de Estudiantes {tipo_tabla.capitalize()}", getSampleStyleSheet()['h1']), Spacer(1, 0.2*inch)]
+                table = Table([df_pdf.columns.tolist()] + df_pdf.values.tolist())
+                table.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+                                           ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                                           ('BOTTOMPADDING', (0,0), (-1,0), 12), ('BACKGROUND', (0,1), (-1,-1), colors.beige),
+                                           ('GRID', (0,0), (-1,-1), 1, colors.black)]))
+                story.append(table)
+                doc.build(story)
+        ruta_guardado, _ = QFileDialog.getSaveFileName(self, f"Guardar Reporte {formato.upper()}", default_filename, file_filter)
+        if not ruta_guardado: return
+        try:
+            save_func(ruta_guardado)
+            mostrar_mensaje_info("Éxito", f"Reporte guardado en '{ruta_guardado}'.")
         except Exception as e:
-            show_critical_error("Error al Exportar PDF", f"No se pudo generar el PDF: {e}")
+            mostrar_error_critico(f"Error al Exportar {formato.upper()}", f"No se pudo guardar el reporte: {e}")
 
-    def closeEvent(self, event):
-        self.db_con.close()
-        event.accept()
+    def closeEvent(self, evento):
+        self.conexion_bd.close()
+        evento.accept()
 
-# --- Funciones de Mensajes ---
-def show_message_box(icon, title, text):
+def mostrar_cuadro_mensaje(icono, titulo, texto):
     msg_box = QMessageBox()
-    msg_box.setIcon(icon)
-    msg_box.setText(text)
-    msg_box.setWindowTitle(title)
+    msg_box.setIcon(icono); msg_box.setText(texto); msg_box.setWindowTitle(titulo)
     msg_box.exec()
 
-def show_info_message(title, text): show_message_box(QMessageBox.Information, title, text)
-def show_warning_message(title, text): show_message_box(QMessageBox.Warning, title, text)
-def show_critical_error(title, text): show_message_box(QMessageBox.Critical, title, text)
+def mostrar_mensaje_info(titulo, texto): mostrar_cuadro_mensaje(QMessageBox.Information, titulo, texto)
+def mostrar_mensaje_advertencia(titulo, texto): mostrar_cuadro_mensaje(QMessageBox.Warning, titulo, texto)
+def mostrar_error_critico(titulo, texto): mostrar_cuadro_mensaje(QMessageBox.Critical, titulo, texto)
 
-# --- Punto de Entrada ---
 if __name__ == '__main__':
-    # --- Requisitos de instalación ---
-    # pip install PySide6 pandas openpyxl reportlab
-    if not PDF_AVAILABLE:
-        show_warning_message(
-            "Dependencia Faltante",
-            "La librería 'reportlab' no está instalada.\n"
-            "La exportación a PDF no estará disponible.\n\n"
-            "Para activarla, instala con: pip install reportlab"
-        )
-
-    init_db()
+    if not PDF_DISPONIBLE:
+        mostrar_mensaje_advertencia("Dependencia Faltante", "La librería 'reportlab' no está instalada.\nLa exportación a PDF no estará disponible.\n\nPara activarla, instala con: pip install reportlab")
+    inicializar_bd()
     app = QApplication(sys.argv)
-    window = ScholarshipManagerApp()
-    window.show()
+    ventana = AppGestorBecas()
+    ventana.show()
     sys.exit(app.exec())
