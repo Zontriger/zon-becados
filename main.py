@@ -46,7 +46,7 @@ def inicializar_bd():
             CREATE TABLE IF NOT EXISTS becados (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo_cedula TEXT NOT NULL CHECK(tipo_cedula IN ('V', 'E', 'P')),
-                cedula INTEGER UNIQUE NOT NULL,
+                cedula INTEGER NOT NULL UNIQUE,
                 nombres TEXT NOT NULL,
                 apellidos TEXT NOT NULL,
                 carrera TEXT NOT NULL,
@@ -137,10 +137,11 @@ class DialogoEstudiante(QDialog):
         datos = self.obtener_datos()
         if datos:
             self.datos_estudiante_listos.emit(datos)
-            if self.es_modo_edicion: self.accept()
-            else:
-                self.etiqueta_estado.setText(f"¡Estudiante con CI {datos['tipo_cedula']}-{datos['cedula']} guardado!")
-                self._limpiar_formulario()
+
+    def registrar_exito_y_limpiar(self, datos):
+        """Muestra el mensaje de éxito y limpia el formulario."""
+        self.etiqueta_estado.setText(f"¡Estudiante con CI {datos['tipo_cedula']}-{datos['cedula']} guardado!")
+        self._limpiar_formulario()
 
     def _limpiar_formulario(self):
         self.cedula_input.clear()
@@ -184,7 +185,6 @@ class AppGestorBecas(QMainWindow):
         self.setWindowTitle("Gestor de Estudiantes y Becas")
         self.setGeometry(100, 100, 1200, 700)
         
-        # Establecer el icono de la ventana
         if os.path.exists('icon.ico'):
             self.setWindowIcon(QIcon('icon.ico'))
             
@@ -387,6 +387,23 @@ class AppGestorBecas(QMainWindow):
             except (ValueError, TypeError) as e:
                 mostrar_mensaje_advertencia("Datos Inválidos", f"Error en la fila {i+1} del archivo: {e}")
                 return None
+        
+        cedulas = df_limpio['Cédula']
+        duplicados = cedulas[cedulas.duplicated(keep=False)]
+        
+        if not duplicados.empty:
+            primer_duplicado = duplicados.iloc[0]
+            indices_duplicados = duplicados[duplicados == primer_duplicado].index
+            filas_reales = [i + header_row_index + 2 for i in indices_duplicados]
+            filas_str = ', '.join(map(str, filas_reales))
+            
+            mostrar_mensaje_advertencia(
+                "Cédulas Duplicadas",
+                f"El archivo contiene cédulas duplicadas. La cédula '{primer_duplicado}' se encontró en las filas: {filas_str}.\n\n"
+                "Por favor, corrige el archivo e inténtalo de nuevo."
+            )
+            return None
+            
         return df_limpio
 
     def cargar_registros_a_tabla(self, tipo_tabla):
@@ -426,7 +443,7 @@ class AppGestorBecas(QMainWindow):
                     cursor.executemany("INSERT INTO inscritos (datos_fila) VALUES (?)", [(fila,) for fila in filas_json])
                     self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
                 self.conexion_bd.commit()
-                mostrar_mensaje_info("Éxito", f"Archivo '{ruta_archivo.split('/')[-1]}' cargado y validado.")
+                mostrar_mensaje_info("Éxito", f"Archivo '{os.path.basename(ruta_archivo)}' cargado y validado.")
         except Exception as e:
             mostrar_error_critico("Error de Carga", f"No se pudo procesar el archivo: {e}")
 
@@ -441,7 +458,7 @@ class AppGestorBecas(QMainWindow):
             cursor.execute("SELECT datos_fila FROM inscritos")
             self.todos_los_inscritos = [json.loads(fila['datos_fila']) for fila in cursor.fetchall()]
             self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
-        except sqlite3.Error as e:
+        except (sqlite3.Error, json.JSONDecodeError) as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los estudiantes inscritos: {e}")
 
     def poblar_tabla_inscritos(self, encabezados, filas):
@@ -488,16 +505,20 @@ class AppGestorBecas(QMainWindow):
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los datos: {e}")
 
     def agregar_estudiante_becado(self):
-        DialogoEstudiante(self).datos_estudiante_listos.connect(self._manejar_datos_agregar_estudiante)
-        DialogoEstudiante(self).exec()
+        dialogo = DialogoEstudiante(self)
+        dialogo.datos_estudiante_listos.connect(
+            lambda datos: self._manejar_datos_agregar_estudiante(dialogo, datos)
+        )
+        dialogo.exec()
 
-    def _manejar_datos_agregar_estudiante(self, datos):
+    def _manejar_datos_agregar_estudiante(self, dialogo, datos):
         try:
             cursor = self.conexion_bd.cursor()
             cursor.execute("INSERT INTO becados (tipo_cedula, cedula, nombres, apellidos, carrera, semestre) VALUES (?, ?, ?, ?, ?, ?)",
                            (datos['tipo_cedula'], datos['cedula'], datos['nombres'], datos['apellidos'], datos['carrera'], datos['semestre']))
             self.conexion_bd.commit()
             self.cargar_estudiantes_becados()
+            dialogo.registrar_exito_y_limpiar(datos)
         except sqlite3.IntegrityError:
             mostrar_mensaje_advertencia("Error", f"La cédula {datos['cedula']} ya está registrada.")
         except sqlite3.Error as e:
@@ -531,21 +552,24 @@ class AppGestorBecas(QMainWindow):
             cursor.execute("SELECT * FROM becados WHERE id = ?", (id_estudiante,))
             datos_estudiante = dict(cursor.fetchone())
             dialogo = DialogoEstudiante(self, datos_estudiante=datos_estudiante)
-            dialogo.datos_estudiante_listos.connect(lambda datos: self._manejar_datos_editar_estudiante(id_estudiante, datos))
+            dialogo.datos_estudiante_listos.connect(
+                lambda datos: self._manejar_datos_editar_estudiante(dialogo, id_estudiante, datos)
+            )
             dialogo.exec()
         except sqlite3.Error as e:
             mostrar_error_critico("Error de DB", f"No se pudo cargar para editar: {e}")
 
-    def _manejar_datos_editar_estudiante(self, id_estudiante, datos):
+    def _manejar_datos_editar_estudiante(self, dialogo, id_estudiante, datos):
         try:
             cursor = self.conexion_bd.cursor()
             cursor.execute("UPDATE becados SET tipo_cedula=?, cedula=?, nombres=?, apellidos=?, carrera=?, semestre=? WHERE id=?",
                            (datos['tipo_cedula'], datos['cedula'], datos['nombres'], datos['apellidos'], datos['carrera'], datos['semestre'], id_estudiante))
             self.conexion_bd.commit()
             self.cargar_estudiantes_becados()
+            dialogo.accept()
             mostrar_mensaje_info("Éxito", "Estudiante actualizado.")
         except sqlite3.IntegrityError:
-            mostrar_mensaje_advertencia("Error", "La cédula ya existe para otro estudiante.")
+            mostrar_mensaje_advertencia("Error", f"La cédula {datos['cedula']} ya existe para otro estudiante.")
         except sqlite3.Error as e:
             mostrar_error_critico("Error de DB", f"No se pudo actualizar: {e}")
 
@@ -579,7 +603,7 @@ class AppGestorBecas(QMainWindow):
             df['Semestre'] = df['semestre'].map({v: k for k, v in SEMESTRES.items()})
             df.rename(columns={'tipo_cedula': 'T. Cédula', 'cedula': 'Cédula', 'nombres': 'Nombres', 'apellidos': 'Apellidos', 'carrera': 'Carrera'}, inplace=True)
             df['Cédula'] = pd.to_numeric(df['Cédula'], errors='coerce')
-            df['Semestre'] = df['Semestre'].apply(lambda x: int(x) if x.isdigit() else x)
+            df['Semestre'] = df['Semestre'].apply(lambda x: str(x) if pd.notna(x) else "")
             return df[['T. Cédula', 'Cédula', 'Nombres', 'Apellidos', 'Carrera', 'Semestre']]
         elif tipo_tabla == 'inscritos':
             if not self.todos_los_inscritos: return pd.DataFrame()
@@ -629,6 +653,8 @@ class AppGestorBecas(QMainWindow):
 
 def mostrar_cuadro_mensaje(icono, titulo, texto):
     msg_box = QMessageBox()
+    if os.path.exists('icon.ico'):
+        msg_box.setWindowIcon(QIcon('icon.ico'))
     msg_box.setIcon(icono); msg_box.setText(texto); msg_box.setWindowTitle(titulo)
     msg_box.exec()
 
