@@ -4,6 +4,7 @@ import sqlite3
 import json
 import os
 import pandas as pd
+import unicodedata
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView,
@@ -35,6 +36,12 @@ SEMESTRES = {
 ARCHIVO_BD = 'estudiantes.db'
 ENCABEZADOS_VISUALIZACION = ["T. Cédula", "Cédula", "Nombres", "Apellidos", "Carrera", "Semestre"]
 ENCABEZADOS_REQUERIDOS = set(ENCABEZADOS_VISUALIZACION)
+
+# --- Funciones de Ayuda ---
+def normalizar_texto(texto):
+    """Convierte a minúsculas y elimina tildes/diacríticos para búsqueda insensible."""
+    texto_normalizado = unicodedata.normalize('NFD', str(texto).lower())
+    return "".join(c for c in texto_normalizado if unicodedata.category(c) != 'Mn')
 
 # --- Lógica de la Base de Datos ---
 def inicializar_bd():
@@ -297,7 +304,7 @@ class AppGestorBecas(QMainWindow):
         filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
         filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}").currentText()
         filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}").currentText()
-        texto_busqueda = getattr(self, f"filtro_busqueda_{tipo_tabla}").text().lower()
+        texto_busqueda = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
 
         if tipo_tabla == 'becados':
             resultados = self.todos_los_becados
@@ -309,8 +316,9 @@ class AppGestorBecas(QMainWindow):
             if filtro_tipocedula != "Todos los Tipos":
                 resultados = [r for r in resultados if r['tipo_cedula'] == filtro_tipocedula]
             if texto_busqueda:
-                resultados = [r for r in resultados if texto_busqueda in str(r['cedula']).lower() or
-                              texto_busqueda in r['nombres'].lower() or texto_busqueda in r['apellidos'].lower()]
+                resultados = [r for r in resultados if texto_busqueda in str(r['cedula']) or
+                              texto_busqueda in normalizar_texto(r['nombres']) or
+                              texto_busqueda in normalizar_texto(r['apellidos'])]
             self.poblar_tabla_becados(resultados)
         
         elif tipo_tabla == 'inscritos':
@@ -320,16 +328,22 @@ class AppGestorBecas(QMainWindow):
 
             for row in range(self.modelo_inscritos.rowCount()):
                 mostrar_fila = True
-                if col_carrera != -1 and filtro_carrera != "Todas las Carreras" and self.modelo_inscritos.item(row, col_carrera).text() != filtro_carrera:
-                    mostrar_fila = False
-                if col_semestre != -1 and filtro_semestre != "Todos los Semestres" and self.modelo_inscritos.item(row, col_semestre).text() != filtro_semestre:
-                    mostrar_fila = False
-                if col_tipocedula != -1 and filtro_tipocedula != "Todos los Tipos" and self.modelo_inscritos.item(row, col_tipocedula).text() != filtro_tipocedula:
-                    mostrar_fila = False
                 
-                if texto_busqueda:
-                    fila_texto = "".join([self.modelo_inscritos.item(row, col).text().lower() for col in range(self.modelo_inscritos.columnCount())])
-                    if texto_busqueda not in fila_texto:
+                if filtro_carrera != "Todas las Carreras" and col_carrera != -1:
+                    if self.modelo_inscritos.item(row, col_carrera).text() != filtro_carrera:
+                        mostrar_fila = False
+                
+                if mostrar_fila and filtro_semestre != "Todos los Semestres" and col_semestre != -1:
+                    if self.modelo_inscritos.item(row, col_semestre).text() != filtro_semestre:
+                        mostrar_fila = False
+
+                if mostrar_fila and filtro_tipocedula != "Todos los Tipos" and col_tipocedula != -1:
+                    if self.modelo_inscritos.item(row, col_tipocedula).text() != filtro_tipocedula:
+                        mostrar_fila = False
+                
+                if mostrar_fila and texto_busqueda:
+                    fila_texto = "".join([self.modelo_inscritos.item(row, col).text() for col in range(self.modelo_inscritos.columnCount())])
+                    if texto_busqueda not in normalizar_texto(fila_texto):
                         mostrar_fila = False
                 
                 self.tabla_inscritos.setRowHidden(row, not mostrar_fila)
