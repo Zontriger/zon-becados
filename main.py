@@ -226,15 +226,16 @@ class AppGestorBecas(QMainWindow):
         layout = QVBoxLayout(grupo)
         
         controles_superiores = QHBoxLayout()
-        if tipo_tabla == "inscritos":
-            boton_cargar = QPushButton("Cargar Registros")
-            boton_cargar.clicked.connect(lambda: self.cargar_registros_a_tabla('inscritos'))
-            controles_superiores.addWidget(boton_cargar)
-            
-            boton_limpiar = QPushButton("Limpiar Registros")
-            boton_limpiar.clicked.connect(lambda: self.limpiar_registros_tabla('inscritos'))
-            controles_superiores.addWidget(boton_limpiar)
-        else: # becados
+        
+        boton_cargar = QPushButton("Cargar Registros")
+        boton_cargar.clicked.connect(lambda: self.cargar_registros_a_tabla(tipo_tabla))
+        controles_superiores.addWidget(boton_cargar)
+        
+        boton_limpiar = QPushButton("Limpiar Registros")
+        boton_limpiar.clicked.connect(lambda: self.limpiar_registros_tabla(tipo_tabla))
+        controles_superiores.addWidget(boton_limpiar)
+
+        if tipo_tabla == "becados":
             boton_agregar = QPushButton("Agregar")
             boton_agregar.clicked.connect(self.agregar_estudiante_becado)
             controles_superiores.addWidget(boton_agregar)
@@ -261,6 +262,7 @@ class AppGestorBecas(QMainWindow):
                 menu_exportar.addAction(accion_pdf)
             boton_exportar.setMenu(menu_exportar)
             controles_superiores.addWidget(boton_exportar)
+
         layout.addLayout(controles_superiores)
         
         filtros_layout = QHBoxLayout()
@@ -412,12 +414,14 @@ class AppGestorBecas(QMainWindow):
         if cursor.fetchone()[0] > 0:
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Sobrescritura")
-            msg_box.setText(f"Ya existen registros en '{tipo_tabla}'. Si cargas un nuevo archivo, los datos actuales se borrarán de forma permanente.\n\n¿Deseas continuar?")
+            msg_box.setText(f"Ya existen registros en la tabla de '{tipo_tabla}'. Si cargas un nuevo archivo, los datos actuales se borrarán de forma permanente.\n\n¿Deseas continuar?")
             boton_si = msg_box.addButton("Sí", QMessageBox.YesRole); msg_box.addButton("No", QMessageBox.NoRole)
             msg_box.exec()
             if msg_box.clickedButton() != boton_si: return
+
         ruta_archivo, _ = QFileDialog.getOpenFileName(self, "Cargar Registros", "", "Archivos Soportados (*.xlsx *.xls *.csv)")
         if not ruta_archivo: return
+        
         try:
             is_csv = ruta_archivo.endswith('.csv')
             if is_csv:
@@ -431,19 +435,44 @@ class AppGestorBecas(QMainWindow):
                     df = pd.read_csv(ruta_archivo, header=None, dtype=str, sep=sep, encoding='latin-1')
             else:
                 df = pd.read_excel(ruta_archivo, sheet_name=0, header=None, dtype=str)
+            
             df_validado = self._validar_dataframe_importado(df, is_csv=is_csv)
-            if df_validado is not None:
-                if tipo_tabla == 'inscritos':
-                    self.encabezados_inscritos = df_validado.columns.tolist()
-                    filas_dict = df_validado.to_dict('records')
-                    self.todos_los_inscritos = filas_dict
-                    filas_json = [json.dumps(r) for r in filas_dict]
-                    cursor.execute("DELETE FROM inscritos"); cursor.execute("DELETE FROM inscritos_encabezados")
-                    cursor.execute("INSERT INTO inscritos_encabezados (id, encabezados) VALUES (1, ?)", (json.dumps(self.encabezados_inscritos),))
-                    cursor.executemany("INSERT INTO inscritos (datos_fila) VALUES (?)", [(fila,) for fila in filas_json])
-                    self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
+            if df_validado is None:
+                return
+
+            if tipo_tabla == 'inscritos':
+                self.encabezados_inscritos = df_validado.columns.tolist()
+                filas_dict = df_validado.to_dict('records')
+                self.todos_los_inscritos = filas_dict
+                filas_json = [json.dumps(r) for r in filas_dict]
+                cursor.execute("DELETE FROM inscritos"); cursor.execute("DELETE FROM inscritos_encabezados")
+                cursor.execute("INSERT INTO inscritos_encabezados (id, encabezados) VALUES (1, ?)", (json.dumps(self.encabezados_inscritos),))
+                cursor.executemany("INSERT INTO inscritos (datos_fila) VALUES (?)", [(fila,) for fila in filas_json])
                 self.conexion_bd.commit()
+                self.cargar_estudiantes_inscritos_desde_bd()
                 mostrar_mensaje_info("Éxito", f"Archivo '{os.path.basename(ruta_archivo)}' cargado y validado.")
+            
+            elif tipo_tabla == 'becados':
+                try:
+                    cursor.execute("BEGIN TRANSACTION")
+                    cursor.execute("DELETE FROM becados")
+                    df_validado['semestre_num'] = df_validado['Semestre'].str.upper().map(SEMESTRES)
+                    for _, row in df_validado.iterrows():
+                        cursor.execute(
+                            "INSERT INTO becados (tipo_cedula, cedula, nombres, apellidos, carrera, semestre) VALUES (?, ?, ?, ?, ?, ?)",
+                            (
+                                row['T. Cédula'], int(row['Cédula']), row['Nombres'],
+                                row['Apellidos'], row['Carrera'], int(row['semestre_num'])
+                            )
+                        )
+                    self.conexion_bd.commit()
+                    self.cargar_estudiantes_becados()
+                    mostrar_mensaje_info("Éxito", f"Estudiantes becados actualizados desde el archivo '{os.path.basename(ruta_archivo)}'.")
+                except sqlite3.Error as e:
+                    self.conexion_bd.rollback()
+                    mostrar_error_critico("Error al Cargar Becados", f"Ocurrió un error al guardar los datos. Es posible que una cédula del archivo ya exista en la base de datos. Cambios revertidos.\n\nError: {e}")
+                    self.cargar_estudiantes_becados()
+
         except Exception as e:
             mostrar_error_critico("Error de Carga", f"No se pudo procesar el archivo: {e}")
 
@@ -452,12 +481,12 @@ class AppGestorBecas(QMainWindow):
             cursor = self.conexion_bd.cursor()
             cursor.execute("SELECT encabezados FROM inscritos_encabezados WHERE id = 1")
             res_encabezados = cursor.fetchone()
-            if not res_encabezados: 
-                self.modelo_inscritos.clear(); self.modelo_inscritos.setHorizontalHeaderLabels([]); return
-            self.encabezados_inscritos = json.loads(res_encabezados['encabezados'])
-            cursor.execute("SELECT datos_fila FROM inscritos")
-            self.todos_los_inscritos = [json.loads(fila['datos_fila']) for fila in cursor.fetchall()]
-            self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
+            self.modelo_inscritos.clear(); self.modelo_inscritos.setHorizontalHeaderLabels([])
+            if res_encabezados:
+                self.encabezados_inscritos = json.loads(res_encabezados['encabezados'])
+                cursor.execute("SELECT datos_fila FROM inscritos")
+                self.todos_los_inscritos = [json.loads(fila['datos_fila']) for fila in cursor.fetchall()]
+                self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
         except (sqlite3.Error, json.JSONDecodeError) as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los estudiantes inscritos: {e}")
 
@@ -476,7 +505,7 @@ class AppGestorBecas(QMainWindow):
         for i in range(len(encabezados)): self.tabla_inscritos.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch if encabezados[i] not in ["T. Cédula", "Semestre"] else QHeaderView.ResizeToContents)
 
     def limpiar_registros_tabla(self, tipo_tabla):
-        titulo = f"¿Estás seguro de limpiar el registro de los estudiantes {tipo_tabla}?"
+        titulo = f"¿Estás seguro de limpiar el registro de los estudiantes de la tabla '{tipo_tabla}'?"
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Limpieza"); msg_box.setText(titulo)
         boton_si = msg_box.addButton("Sí", QMessageBox.YesRole); msg_box.addButton("No", QMessageBox.NoRole)
@@ -486,11 +515,12 @@ class AppGestorBecas(QMainWindow):
                 cursor = self.conexion_bd.cursor()
                 if tipo_tabla == 'inscritos':
                     cursor.execute("DELETE FROM inscritos"); cursor.execute("DELETE FROM inscritos_encabezados")
-                    self.modelo_inscritos.clear(); self.modelo_inscritos.setHorizontalHeaderLabels([])
+                    self.conexion_bd.commit()
+                    self.cargar_estudiantes_inscritos_desde_bd()
                 else: # becados
                     cursor.execute("DELETE FROM becados")
-                    self.modelo_becados.clear(); self.modelo_becados.setHorizontalHeaderLabels(ENCABEZADOS_VISUALIZACION)
-                self.conexion_bd.commit()
+                    self.conexion_bd.commit()
+                    self.cargar_estudiantes_becados()
                 mostrar_mensaje_info("Éxito", f"Se han borrado los registros de estudiantes {tipo_tabla}.")
             except sqlite3.Error as e:
                 mostrar_error_critico("Error de DB", f"No se pudieron borrar los registros: {e}")
