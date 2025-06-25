@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView,
     QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
-    QFormLayout, QDialogButtonBox, QLabel, QMenu
+    QFormLayout, QDialogButtonBox, QLabel, QMenu, QCheckBox
 )
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction, QIcon, QColor, QBrush, QFont
 from PySide6.QtCore import Qt, Signal
@@ -199,6 +199,12 @@ class DialogoEstudiante(QDialog):
                 'nombres': nombre, 'apellidos': apellido, 'carrera': self.carrera_combo.currentText(),
                 'semestre': SEMESTRES[self.semestre_combo.currentText()]}
 
+class CustomTableView(QTableView):
+    """A custom QTableView that clears selection on focus out."""
+    def focusOutEvent(self, event):
+        self.clearSelection()
+        super().focusOutEvent(event)
+
 # --- Ventana Principal ---
 class AppGestorBecas(QMainWindow):
     def __init__(self):
@@ -242,18 +248,50 @@ class AppGestorBecas(QMainWindow):
         layout_tablas.addWidget(grupo_becados, 1)
         diseno_principal.addLayout(layout_tablas)
 
-        self.boton_comparar = QPushButton("Comparar Registros")
+        layout_controles_comp = QHBoxLayout()
+        self.boton_comparar = QPushButton("Colorear Registros")
         font = QFont()
         font.setPointSize(12)
         font.setBold(True)
         self.boton_comparar.setFont(font)
         self.boton_comparar.setMinimumHeight(40)
         self.boton_comparar.clicked.connect(self.alternar_modo_comparacion)
-        diseno_principal.addWidget(self.boton_comparar)
+        layout_controles_comp.addWidget(self.boton_comparar, 2)
+
+        grupo_filtros_color = QGroupBox("Filtrar por Color")
+        layout_filtros_color = QHBoxLayout()
+        self.check_verde = QCheckBox("Verde")
+        self.check_amarillo = QCheckBox("Amarillo")
+        self.check_rojo = QCheckBox("Rojo")
+        self.check_verde.stateChanged.connect(self._aplicar_filtros)
+        self.check_amarillo.stateChanged.connect(self._aplicar_filtros)
+        self.check_rojo.stateChanged.connect(self._aplicar_filtros)
+        
+        layout_filtros_color.addStretch()
+        layout_filtros_color.addWidget(self.check_verde)
+        layout_filtros_color.addWidget(self.check_amarillo)
+        layout_filtros_color.addWidget(self.check_rojo)
+        layout_filtros_color.addStretch()
+        grupo_filtros_color.setLayout(layout_filtros_color)
+        layout_controles_comp.addWidget(grupo_filtros_color, 1)
+        
+        diseno_principal.addLayout(layout_controles_comp)
+
+        layout_recuentos = QHBoxLayout()
+        self.lbl_inscritos = QLabel("Estudiantes inscritos: --")
+        self.lbl_becados = QLabel("Estudiantes becados: --")
+        self.lbl_becados_no_inscritos = QLabel("Estudiantes becados no inscritos: --")
+        self.lbl_incongruentes = QLabel("Estudiantes con datos incongruentes: --")
+        self.lbl_cupos = QLabel("Cupos disponibles: --")
+        
+        for lbl in [self.lbl_inscritos, self.lbl_becados, self.lbl_becados_no_inscritos, self.lbl_incongruentes, self.lbl_cupos]:
+            lbl.setAlignment(Qt.AlignCenter)
+            layout_recuentos.addWidget(lbl)
+        diseno_principal.addLayout(layout_recuentos)
 
 
     def _crear_vista_tabla(self):
-        tabla = QTableView()
+        tabla = CustomTableView()
         tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
         tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
         tabla.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -326,10 +364,10 @@ class AppGestorBecas(QMainWindow):
         filtros_layout.addWidget(filtro_semestre)
         filtros_layout.addWidget(filtro_tipocedula)
 
-        filtro_busqueda.textChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
-        filtro_carrera.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
-        filtro_semestre.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
-        filtro_tipocedula.currentTextChanged.connect(lambda: self._aplicar_filtros(tipo_tabla))
+        filtro_busqueda.textChanged.connect(self._aplicar_filtros)
+        filtro_carrera.currentTextChanged.connect(self._aplicar_filtros)
+        filtro_semestre.currentTextChanged.connect(self._aplicar_filtros)
+        filtro_tipocedula.currentTextChanged.connect(self._aplicar_filtros)
         layout.addLayout(filtros_layout)
         return grupo
     
@@ -345,51 +383,53 @@ class AppGestorBecas(QMainWindow):
             else:
                 self.boton_agregar_becado.setToolTip("")
 
-    def _aplicar_filtros(self, tipo_tabla):
-        filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
-        filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}").currentText()
-        filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}").currentText()
-        texto_busqueda = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
+    def _aplicar_filtros(self):
+        for tipo_tabla in ['becados', 'inscritos']:
+            tabla = getattr(self, f"tabla_{tipo_tabla}")
+            modelo = getattr(self, f"modelo_{tipo_tabla}")
+            
+            filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
+            filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}").currentText()
+            filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}").currentText()
+            texto_busqueda = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
 
-        if tipo_tabla == 'becados':
-            for row in range(self.modelo_becados.rowCount()):
-                mostrar_fila = True
-                
-                tipo_ced_item = self.modelo_becados.item(row, 0).text()
-                cedula_item = self.modelo_becados.item(row, 1).text()
-                nombres_item = self.modelo_becados.item(row, 2).text()
-                apellidos_item = self.modelo_becados.item(row, 3).text()
-                carrera_item = self.modelo_becados.item(row, 4).text()
-                semestre_item = self.modelo_becados.item(row, 5).text()
-                
-                if filtro_carrera != "Todas las Carreras" and carrera_item != filtro_carrera:
-                    mostrar_fila = False
-                if mostrar_fila and filtro_semestre != "Todos los Semestres" and semestre_item != filtro_semestre:
-                    mostrar_fila = False
-                if mostrar_fila and filtro_tipocedula != "Todos los Tipos" and tipo_ced_item != filtro_tipocedula:
-                    mostrar_fila = False
-                if mostrar_fila and texto_busqueda:
-                    if not (texto_busqueda in str(cedula_item) or texto_busqueda in normalizar_texto(nombres_item) or texto_busqueda in normalizar_texto(apellidos_item)):
-                        mostrar_fila = False
-                self.tabla_becados.setRowHidden(row, not mostrar_fila)
-        
-        elif tipo_tabla == 'inscritos':
-            for row in range(self.modelo_inscritos.rowCount()):
-                mostrar_fila = True
-                fila_datos = {self.modelo_inscritos.horizontalHeaderItem(col).text(): self.modelo_inscritos.item(row, col).text() for col in range(self.modelo_inscritos.columnCount())}
+            ver_verde = self.check_verde.isChecked()
+            ver_amarillo = self.check_amarillo.isChecked()
+            ver_rojo = self.check_rojo.isChecked()
+            filtro_color_activo = self.modo_comparacion and (ver_verde or ver_amarillo or ver_rojo)
+
+            for row in range(modelo.rowCount()):
+                mostrar_por_texto = True
+                fila_datos = {modelo.horizontalHeaderItem(col).text(): modelo.item(row, col).text() for col in range(modelo.columnCount())}
                 
                 if filtro_carrera != "Todas las Carreras" and fila_datos.get("Carrera") != filtro_carrera:
-                    mostrar_fila = False
-                if mostrar_fila and filtro_semestre != "Todos los Semestres" and fila_datos.get("Semestre") != filtro_semestre:
-                    mostrar_fila = False
-                if mostrar_fila and filtro_tipocedula != "Todos los Tipos" and fila_datos.get("T. Cédula") != filtro_tipocedula:
-                    mostrar_fila = False
-                if mostrar_fila and texto_busqueda:
-                    fila_texto_completo = "".join(fila_datos.values())
-                    if texto_busqueda not in normalizar_texto(fila_texto_completo):
-                        mostrar_fila = False
+                    mostrar_por_texto = False
+                if mostrar_por_texto and filtro_semestre != "Todos los Semestres" and fila_datos.get("Semestre") != filtro_semestre:
+                    mostrar_por_texto = False
+                if mostrar_por_texto and filtro_tipocedula != "Todos los Tipos" and fila_datos.get("T. Cédula") != filtro_tipocedula:
+                    mostrar_por_texto = False
+                if mostrar_por_texto and texto_busqueda:
+                    texto_completo_fila = "".join(fila_datos.values())
+                    if texto_busqueda not in normalizar_texto(texto_completo_fila):
+                        mostrar_por_texto = False
                 
-                self.tabla_inscritos.setRowHidden(row, not mostrar_fila)
+                mostrar_final = mostrar_por_texto
+                if mostrar_por_texto and filtro_color_activo:
+                    mostrar_por_color = False
+                    item_ejemplo = modelo.item(row, 0)
+                    color_fila = item_ejemplo.background().color()
+                    tiene_amarillo = any(modelo.item(row, col).background().color() == COLOR_AMARILLO_PASTEL for col in range(modelo.columnCount()))
+                    
+                    if ver_amarillo and tiene_amarillo:
+                        mostrar_por_color = True
+                    elif ver_verde and not tiene_amarillo and color_fila == COLOR_VERDE_PASTEL:
+                        mostrar_por_color = True
+                    elif ver_rojo and color_fila == COLOR_ROJO_PASTEL:
+                        mostrar_por_color = True
+                    
+                    mostrar_final = mostrar_por_color
+
+                tabla.setRowHidden(row, not mostrar_final)
 
     def poblar_tabla_becados(self, datos):
         self.modelo_becados.clear()
@@ -404,7 +444,7 @@ class AppGestorBecas(QMainWindow):
                 valor = datos_fila.get({"T. Cédula": "tipo_cedula", "Cédula": "cedula", "Nombres": "nombres", "Apellidos": "apellidos", "Carrera": "carrera", "Semestre": "semestre"}[h], '')
                 item_texto = next((k for k, v in SEMESTRES.items() if v == valor), "") if h == 'Semestre' else str(valor)
                 elemento = QStandardItem(item_texto)
-                if h == "T. Cédula": elemento.setData(datos_fila.get('id'), Qt.UserRole)
+                elemento.setData(datos_fila['cedula'], Qt.UserRole)
                 if col_index in [0, 5]: elemento.setTextAlignment(Qt.AlignCenter)
                 elementos_fila.append(elemento)
             self.modelo_becados.appendRow(elementos_fila)
@@ -552,6 +592,7 @@ class AppGestorBecas(QMainWindow):
         except (sqlite3.Error, json.JSONDecodeError) as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los estudiantes inscritos: {e}")
         finally:
+            self.actualizar_recuentos()
             if self.modo_comparacion:
                 self.pintar_comparacion()
 
@@ -600,6 +641,7 @@ class AppGestorBecas(QMainWindow):
         except sqlite3.Error as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los datos: {e}")
         finally:
+            self.actualizar_recuentos()
             if self.modo_comparacion:
                 self.pintar_comparacion()
 
@@ -628,9 +670,8 @@ class AppGestorBecas(QMainWindow):
             
     def ver_registro_doble_clic(self, index, tipo_tabla):
         if tipo_tabla == 'becados':
-            id_estudiante = self.modelo_becados.item(index.row(), 0).data(Qt.UserRole)
-            if id_estudiante is None: return
-            datos_estudiante_db = next((r for r in self.todos_los_becados if r['id'] == id_estudiante), None)
+            cedula = self.modelo_becados.item(index.row(), 1).text()
+            datos_estudiante_db = next((r for r in self.todos_los_becados if str(r['cedula']) == cedula), None)
             if datos_estudiante_db:
                 datos_para_dialogo = {'T. Cédula': datos_estudiante_db.get('tipo_cedula'), 'Cédula': datos_estudiante_db.get('cedula'),
                                       'Nombres': datos_estudiante_db.get('nombres'), 'Apellidos': datos_estudiante_db.get('apellidos'),
@@ -638,7 +679,7 @@ class AppGestorBecas(QMainWindow):
                                       'Semestre': next((k for k, v in SEMESTRES.items() if v == datos_estudiante_db.get('semestre')), "N/A")}
                 DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo).exec()
         elif tipo_tabla == 'inscritos':
-            datos_para_dialogo = {self.modelo_inscritos.headerData(col, Qt.Horizontal): self.modelo_inscritos.item(index.row(), col).text()
+            datos_para_dialogo = {self.modelo_inscritos.horizontalHeaderItem(col).text(): self.modelo_inscritos.item(index.row(), col).text()
                                   for col in range(self.modelo_inscritos.columnCount())}
             DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo).exec()
 
@@ -647,19 +688,17 @@ class AppGestorBecas(QMainWindow):
         if not filas_seleccionadas:
             mostrar_mensaje_advertencia("Atención", "Selecciona un estudiante para editar.")
             return
-        id_estudiante = self.modelo_becados.item(filas_seleccionadas[0].row(), 0).data(Qt.UserRole)
-        if id_estudiante is None: return
-        try:
-            cursor = self.conexion_bd.cursor()
-            cursor.execute("SELECT * FROM becados WHERE id = ?", (id_estudiante,))
-            datos_estudiante = dict(cursor.fetchone())
-            dialogo = DialogoEstudiante(self, datos_estudiante=datos_estudiante)
-            dialogo.datos_estudiante_listos.connect(
-                lambda datos: self._manejar_datos_editar_estudiante(dialogo, id_estudiante, datos)
-            )
-            dialogo.exec()
-        except sqlite3.Error as e:
-            mostrar_error_critico("Error de DB", f"No se pudo cargar para editar: {e}")
+        cedula_a_editar = self.modelo_becados.item(filas_seleccionadas[0].row(), 1).text()
+        datos_estudiante = next((b for b in self.todos_los_becados if str(b['cedula']) == cedula_a_editar), None)
+        
+        if not datos_estudiante: return
+        
+        id_estudiante = datos_estudiante['id']
+        dialogo = DialogoEstudiante(self, datos_estudiante=datos_estudiante)
+        dialogo.datos_estudiante_listos.connect(
+            lambda datos: self._manejar_datos_editar_estudiante(dialogo, id_estudiante, datos)
+        )
+        dialogo.exec()
 
     def _manejar_datos_editar_estudiante(self, dialogo, id_estudiante, datos):
         try:
@@ -680,9 +719,14 @@ class AppGestorBecas(QMainWindow):
         if not filas_seleccionadas:
             mostrar_mensaje_advertencia("Atención", "Selecciona un estudiante para eliminar.")
             return
-        id_estudiante = self.modelo_becados.item(filas_seleccionadas[0].row(), 0).data(Qt.UserRole)
-        nombre = self.modelo_becados.item(filas_seleccionadas[0].row(), 2).text()
-        if id_estudiante is None: return
+        cedula_a_eliminar = self.modelo_becados.item(filas_seleccionadas[0].row(), 1).text()
+        datos_estudiante = next((b for b in self.todos_los_becados if str(b['cedula']) == cedula_a_eliminar), None)
+        
+        if not datos_estudiante: return
+
+        id_estudiante = datos_estudiante['id']
+        nombre = datos_estudiante['nombres']
+        
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Eliminación")
         msg_box.setText(f"¿Seguro que quieres eliminar a {nombre}?")
@@ -753,10 +797,13 @@ class AppGestorBecas(QMainWindow):
         self.modo_comparacion = not self.modo_comparacion
         if self.modo_comparacion:
             self.pintar_comparacion()
-            self.boton_comparar.setText("Quitar Comparación")
+            self.boton_comparar.setText("Quitar Coloreado")
         else:
             self.despintar_tablas()
-            self.boton_comparar.setText("Comparar Registros")
+            self.boton_comparar.setText("Colorear Registros")
+        
+        self.actualizar_recuentos()
+        self._aplicar_filtros()
 
     def despintar_tablas(self):
         for row in range(self.modelo_becados.rowCount()):
@@ -835,6 +882,61 @@ class AppGestorBecas(QMainWindow):
                 else:
                     for col in range(self.modelo_inscritos.columnCount()):
                         self.modelo_inscritos.item(row, col).setBackground(QBrush(COLOR_ROJO_PASTEL))
+        
+        self.actualizar_recuentos()
+
+    def actualizar_recuentos(self):
+        becados_map = {str(b['cedula']): b for b in self.todos_los_becados}
+        inscritos_map = {str(i.get('Cédula')): i for i in self.todos_los_inscritos if 'Cédula' in i and i.get('Cédula')}
+        
+        cedulas_becados = set(becados_map.keys())
+        cedulas_inscritos = set(inscritos_map.keys())
+
+        num_inscritos = len(cedulas_inscritos)
+        num_becados = len(cedulas_becados)
+
+        self.lbl_inscritos.setText(f"Estudiantes inscritos: {num_inscritos if num_inscritos > 0 else '--'}")
+        
+        self.lbl_becados.setText(f"Estudiantes becados: {num_becados if num_becados > 0 else '--'}")
+        self.lbl_becados.setStyleSheet("color: red;" if num_becados >= LIMITE_BECADOS else "")
+
+        cupos_disponibles = LIMITE_BECADOS - num_becados
+        if cupos_disponibles > 0:
+            self.lbl_cupos.setText(f"Cupos disponibles: <b>{cupos_disponibles}</b>")
+            self.lbl_cupos.setStyleSheet("color: green;")
+        else:
+            self.lbl_cupos.setText(f"Cupos disponibles: <b style='color: red;'>{cupos_disponibles}</b>")
+            self.lbl_cupos.setStyleSheet("")
+
+        if num_becados > 0 and num_inscritos > 0:
+            cedulas_comunes = cedulas_becados.intersection(cedulas_inscritos)
+            
+            becados_no_inscritos_count = len(cedulas_becados - cedulas_inscritos)
+            if becados_no_inscritos_count > 0:
+                self.lbl_becados_no_inscritos.setText(f"Estudiantes becados no inscritos: <b>{becados_no_inscritos_count}</b>")
+                self.lbl_becados_no_inscritos.setStyleSheet("color: red;")
+            else:
+                self.lbl_becados_no_inscritos.setText("Estudiantes becados no inscritos: 0")
+                self.lbl_becados_no_inscritos.setStyleSheet("")
+            
+            incongruentes = 0
+            mapa_comparacion = {"T. Cédula": ('tipo_cedula', 'T. Cédula'), "Nombres": ('nombres', 'Nombres'), "Apellidos": ('apellidos', 'Apellidos'), "Carrera": ('carrera', 'Carrera'), "Semestre": ('semestre', 'Semestre')}
+            for cedula in cedulas_comunes:
+                becado_data = becados_map[cedula]
+                inscrito_data = inscritos_map[cedula]
+                for header, (key_becado, key_inscrito) in mapa_comparacion.items():
+                    val_becado = becado_data.get(key_becado)
+                    val_inscrito = inscrito_data.get(key_inscrito)
+                    if header == "Semestre":
+                        val_inscrito = SEMESTRES.get(str(val_inscrito).upper(), -1)
+                    if str(val_becado) != str(val_inscrito):
+                        incongruentes += 1
+                        break
+            self.lbl_incongruentes.setText(f"Estudiantes con datos incongruentes: {incongruentes}")
+        else:
+            self.lbl_becados_no_inscritos.setText("Estudiantes becados no inscritos: --")
+            self.lbl_becados_no_inscritos.setStyleSheet("")
+            self.lbl_incongruentes.setText("Estudiantes con datos incongruentes: --")
 
     def closeEvent(self, evento):
         self.conexion_bd.close()
