@@ -5,11 +5,13 @@ import json
 import os
 import pandas as pd
 import unicodedata
+import shutil
+import webbrowser
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView,
     QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
-    QFormLayout, QDialogButtonBox, QLabel, QMenu, QCheckBox
+    QFormLayout, QDialogButtonBox, QLabel, QMenu, QCheckBox, QTextEdit
 )
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction, QIcon, QColor, QBrush, QFont
 from PySide6.QtCore import Qt, Signal
@@ -224,9 +226,146 @@ class AppGestorBecas(QMainWindow):
         self.todos_los_becados = []
         self.todos_los_inscritos = []
         self.encabezados_inscritos = []
+        self._crear_barra_menu()
         self._configurar_ui()
         self.cargar_estudiantes_becados()
         self.cargar_estudiantes_inscritos_desde_bd()
+
+    def _crear_barra_menu(self):
+        menu_bar = self.menuBar()
+        
+        # Menú Base de Datos
+        menu_db = menu_bar.addMenu("Base de Datos")
+        accion_guardar = QAction("Guardar", self)
+        accion_guardar.triggered.connect(self.guardar_bd)
+        menu_db.addAction(accion_guardar)
+
+        accion_cargar = QAction("Cargar", self)
+        accion_cargar.triggered.connect(self.cargar_bd)
+        menu_db.addAction(accion_cargar)
+        
+        menu_db.addSeparator()
+
+        accion_limpiar = QAction("Limpiar", self)
+        accion_limpiar.triggered.connect(self.limpiar_bd)
+        menu_db.addAction(accion_limpiar)
+
+        # Menú Ayuda
+        menu_ayuda = menu_bar.addMenu("Ayuda")
+        accion_acerca_de = QAction("Acerca de", self)
+        accion_acerca_de.triggered.connect(self.mostrar_acerca_de)
+        menu_ayuda.addAction(accion_acerca_de)
+        
+        accion_github = QAction("GitHub", self)
+        accion_github.triggered.connect(self.abrir_github)
+        menu_ayuda.addAction(accion_github)
+
+    def guardar_bd(self):
+        if self.conexion_bd:
+            self.conexion_bd.close()
+            self.conexion_bd = None
+
+        try:
+            ruta_guardado, _ = QFileDialog.getSaveFileName(self, "Guardar Base de Datos", "copia_estudiantes.db", "Archivos de Base de Datos (*.db)")
+            if ruta_guardado:
+                shutil.copyfile(ARCHIVO_BD, ruta_guardado)
+                mostrar_mensaje_info("Éxito", f"Base de datos guardada en:\n{ruta_guardado}")
+        except Exception as e:
+            mostrar_error_critico("Error al Guardar", f"No se pudo guardar la base de datos: {e}")
+        finally:
+            self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
+            self.conexion_bd.row_factory = sqlite3.Row
+
+    def cargar_bd(self):
+        ruta_archivo, _ = QFileDialog.getOpenFileName(self, "Cargar Base de Datos", "", "Archivos de Base de Datos (*.db)")
+        if not ruta_archivo:
+            return
+
+        try:
+            conn_test = sqlite3.connect(ruta_archivo)
+            cursor_test = conn_test.cursor()
+            cursor_test.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('becados', 'inscritos', 'inscritos_encabezados')")
+            tables = cursor_test.fetchall()
+            conn_test.close()
+            if len(tables) < 3:
+                raise sqlite3.DatabaseError("El archivo no contiene las tablas necesarias.")
+        except Exception as e:
+            mostrar_error_critico("Archivo Inválido", f"El archivo seleccionado no es una base de datos válida para esta aplicación.\n\nError: {e}")
+            return
+
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("Confirmar Carga")
+        msg_box.setText("Cargar una nueva base de datos reemplazará todos los datos actuales de forma permanente.\n\n¿Deseas continuar?")
+        boton_si = msg_box.addButton("Sí, cargar", QMessageBox.YesRole)
+        msg_box.addButton("No", QMessageBox.NoRole)
+        msg_box.exec()
+
+        if msg_box.clickedButton() == boton_si:
+            if self.conexion_bd:
+                self.conexion_bd.close()
+            try:
+                shutil.copyfile(ruta_archivo, ARCHIVO_BD)
+                self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
+                self.conexion_bd.row_factory = sqlite3.Row
+                self.cargar_estudiantes_becados()
+                self.cargar_estudiantes_inscritos_desde_bd()
+                mostrar_mensaje_info("Éxito", "Base de datos cargada correctamente.")
+            except Exception as e:
+                mostrar_error_critico("Error al Cargar", f"No se pudo cargar la base de datos: {e}")
+                self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
+                self.conexion_bd.row_factory = sqlite3.Row
+
+    def limpiar_bd(self):
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("Confirmar Limpieza Total")
+        msg_box.setText("¿Estás seguro de que quieres borrar TODOS los registros (becados e inscritos) de la base de datos?\n\n¡Esta acción no se puede deshacer! Asegúrate de haber guardado una copia de seguridad si la necesitas.")
+        boton_si = msg_box.addButton("Sí, borrar todo", QMessageBox.YesRole)
+        msg_box.addButton("No", QMessageBox.NoRole)
+        msg_box.exec()
+        
+        if msg_box.clickedButton() == boton_si:
+            try:
+                cursor = self.conexion_bd.cursor()
+                cursor.execute("DELETE FROM becados")
+                cursor.execute("DELETE FROM inscritos")
+                cursor.execute("DELETE FROM inscritos_encabezados")
+                self.conexion_bd.commit()
+                
+                self.cargar_estudiantes_becados()
+                self.cargar_estudiantes_inscritos_desde_bd()
+                
+                mostrar_mensaje_info("Éxito", "Todos los registros han sido borrados de la base de datos.")
+            except sqlite3.Error as e:
+                mostrar_error_critico("Error de Base de Datos", f"No se pudieron borrar los registros: {e}")
+
+    def mostrar_acerca_de(self):
+        dialogo = QDialog(self)
+        dialogo.setWindowTitle("Acerca de Gestor de Becas")
+        dialogo.setMinimumSize(600, 400)
+        
+        layout = QVBoxLayout(dialogo)
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        
+        try:
+            with open("README.md", "r", encoding="utf-8") as f:
+                readme_content = f.read()
+                text_edit.setMarkdown(readme_content)
+        except FileNotFoundError:
+            text_edit.setText("No se encontró el archivo README.md.")
+        
+        layout.addWidget(text_edit)
+        
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        button_box.accepted.connect(dialogo.accept)
+        layout.addWidget(button_box)
+        
+        dialogo.exec()
+
+    def abrir_github(self):
+        webbrowser.open("https://github.com/zontriger/zon-becados")
 
     def _configurar_ui(self):
         widget_principal = QWidget(self)
@@ -417,15 +556,16 @@ class AppGestorBecas(QMainWindow):
                 if mostrar_por_texto and filtro_color_activo:
                     mostrar_por_color = False
                     item_ejemplo = modelo.item(row, 0)
-                    color_fila = item_ejemplo.background().color()
-                    tiene_amarillo = any(modelo.item(row, col).background().color() == COLOR_AMARILLO_PASTEL for col in range(modelo.columnCount()))
-                    
-                    if ver_amarillo and tiene_amarillo:
-                        mostrar_por_color = True
-                    elif ver_verde and not tiene_amarillo and color_fila == COLOR_VERDE_PASTEL:
-                        mostrar_por_color = True
-                    elif ver_rojo and color_fila == COLOR_ROJO_PASTEL:
-                        mostrar_por_color = True
+                    if item_ejemplo:
+                        color_fila = item_ejemplo.background().color()
+                        tiene_amarillo = any(modelo.item(row, col).background().color() == COLOR_AMARILLO_PASTEL for col in range(modelo.columnCount()))
+                        
+                        if ver_amarillo and tiene_amarillo:
+                            mostrar_por_color = True
+                        elif ver_verde and not tiene_amarillo and color_fila == COLOR_VERDE_PASTEL:
+                            mostrar_por_color = True
+                        elif ver_rojo and color_fila == COLOR_ROJO_PASTEL:
+                            mostrar_por_color = True
                     
                     mostrar_final = mostrar_por_color
 
@@ -920,19 +1060,20 @@ class AppGestorBecas(QMainWindow):
                 self.lbl_becados_no_inscritos.setStyleSheet("")
             
             incongruentes = 0
-            mapa_comparacion = {"T. Cédula": ('tipo_cedula', 'T. Cédula'), "Nombres": ('nombres', 'Nombres'), "Apellidos": ('apellidos', 'Apellidos'), "Carrera": ('carrera', 'Carrera'), "Semestre": ('semestre', 'Semestre')}
-            for cedula in cedulas_comunes:
-                becado_data = becados_map[cedula]
-                inscrito_data = inscritos_map[cedula]
-                for header, (key_becado, key_inscrito) in mapa_comparacion.items():
-                    val_becado = becado_data.get(key_becado)
-                    val_inscrito = inscrito_data.get(key_inscrito)
-                    if header == "Semestre":
-                        val_inscrito = SEMESTRES.get(str(val_inscrito).upper(), -1)
-                    if str(val_becado) != str(val_inscrito):
-                        incongruentes += 1
-                        break
-            self.lbl_incongruentes.setText(f"Estudiantes con datos incongruentes: {incongruentes}")
+            if self.modo_comparacion:
+                mapa_comparacion = {"T. Cédula": ('tipo_cedula', 'T. Cédula'), "Nombres": ('nombres', 'Nombres'), "Apellidos": ('apellidos', 'Apellidos'), "Carrera": ('carrera', 'Carrera'), "Semestre": ('semestre', 'Semestre')}
+                for cedula in cedulas_comunes:
+                    becado_data = becados_map[cedula]
+                    inscrito_data = inscritos_map[cedula]
+                    for header, (key_becado, key_inscrito) in mapa_comparacion.items():
+                        val_becado = becado_data.get(key_becado)
+                        val_inscrito = inscrito_data.get(key_inscrito)
+                        if header == "Semestre":
+                            val_inscrito = SEMESTRES.get(str(val_inscrito).upper(), -1)
+                        if str(val_becado) != str(val_inscrito):
+                            incongruentes += 1
+                            break
+            self.lbl_incongruentes.setText(f"Estudiantes con datos incongruentes: {incongruentes if self.modo_comparacion else '--'}")
         else:
             self.lbl_becados_no_inscritos.setText("Estudiantes becados no inscritos: --")
             self.lbl_becados_no_inscritos.setStyleSheet("")
