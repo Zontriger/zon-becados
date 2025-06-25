@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
     QFormLayout, QDialogButtonBox, QLabel, QMenu
 )
-from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction, QIcon
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction, QIcon, QColor, QBrush, QFont
 from PySide6.QtCore import Qt, Signal
 
 # --- Dependencia Adicional para PDF ---
@@ -37,6 +37,10 @@ ARCHIVO_BD = 'estudiantes.db'
 ENCABEZADOS_VISUALIZACION = ["T. Cédula", "Cédula", "Nombres", "Apellidos", "Carrera", "Semestre"]
 ENCABEZADOS_REQUERIDOS = set(ENCABEZADOS_VISUALIZACION)
 LIMITE_BECADOS = 216
+
+COLOR_VERDE_PASTEL = QColor(204, 255, 204)
+COLOR_AMARILLO_PASTEL = QColor(255, 255, 204)
+COLOR_ROJO_PASTEL = QColor(255, 204, 204)
 
 # --- Funciones de Ayuda ---
 def normalizar_texto(texto):
@@ -85,7 +89,10 @@ class DialogoVerEstudiante(QDialog):
     def __init__(self, parent=None, datos_estudiante=None):
         super().__init__(parent)
         self.setWindowTitle("Información del Estudiante")
-        layout = QFormLayout(self)
+        
+        main_layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+
         mapa_etiquetas = {
             'T. Cédula': 'T. Cédula:', 'Cédula': 'Cédula:',
             'Nombres': 'Nombres:', 'Apellidos': 'Apellidos:',
@@ -93,10 +100,16 @@ class DialogoVerEstudiante(QDialog):
         }
         for clave, etiqueta in mapa_etiquetas.items():
             valor = datos_estudiante.get(clave, 'N/A')
-            layout.addRow(QLabel(etiqueta), QLabel(str(valor)))
-        boton_cerrar = QDialogButtonBox(QDialogButtonBox.Ok)
-        boton_cerrar.accepted.connect(self.accept)
-        layout.addWidget(boton_cerrar)
+            form_layout.addRow(QLabel(etiqueta), QLabel(str(valor)))
+        
+        main_layout.addLayout(form_layout)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        button_box.setCenterButtons(True)
+        button_box.accepted.connect(self.accept)
+        
+        main_layout.addWidget(button_box)
+
 
 # --- Diálogo para Agregar/Editar Estudiante ---
 class DialogoEstudiante(QDialog):
@@ -173,8 +186,8 @@ class DialogoEstudiante(QDialog):
         if not cedula_texto.isdigit() or not (6 <= len(cedula_texto) <= 9):
             mostrar_mensaje_advertencia("Dato Inválido", "La cédula debe contener solo números y tener entre 6 y 9 dígitos.")
             return None
-        nombre = ' '.join(self.nombres_input.text().strip().split())
-        apellido = ' '.join(self.apellidos_input.text().strip().split())
+        nombre = ' '.join(self.nombres_input.text().strip().split()).title()
+        apellido = ' '.join(self.apellidos_input.text().strip().split()).title()
         regex_nombre_valido = re.compile(r"^[A-Za-zÀ-ÿ\s]+$")
         if not (3 <= len(nombre) <= 30 and regex_nombre_valido.match(nombre)):
             mostrar_mensaje_advertencia("Dato Inválido", "El nombre debe tener entre 3 y 30 caracteres, contener solo letras y espacios simples.")
@@ -197,6 +210,9 @@ class AppGestorBecas(QMainWindow):
             self.setWindowIcon(QIcon('icon.ico'))
         
         self.boton_agregar_becado = None
+        self.modo_comparacion = False
+        self.boton_comparar = None
+
         self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
         self.conexion_bd.row_factory = sqlite3.Row
         self.todos_los_becados = []
@@ -209,17 +225,32 @@ class AppGestorBecas(QMainWindow):
     def _configurar_ui(self):
         widget_principal = QWidget(self)
         self.setCentralWidget(widget_principal)
-        diseno_principal = QHBoxLayout(widget_principal)
+        diseno_principal = QVBoxLayout(widget_principal)
+
+        layout_tablas = QHBoxLayout()
         grupo_inscritos = self.crear_grupo_tabla("Estudiantes Inscritos", "inscritos")
         self.tabla_inscritos, self.modelo_inscritos = self._crear_vista_tabla()
         self.tabla_inscritos.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'inscritos'))
         grupo_inscritos.layout().addWidget(self.tabla_inscritos)
+        
         grupo_becados = self.crear_grupo_tabla("Estudiantes Becados", "becados")
         self.tabla_becados, self.modelo_becados = self._crear_vista_tabla()
         self.tabla_becados.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'becados'))
         grupo_becados.layout().addWidget(self.tabla_becados)
-        diseno_principal.addWidget(grupo_inscritos, 1)
-        diseno_principal.addWidget(grupo_becados, 1)
+
+        layout_tablas.addWidget(grupo_inscritos, 1)
+        layout_tablas.addWidget(grupo_becados, 1)
+        diseno_principal.addLayout(layout_tablas)
+
+        self.boton_comparar = QPushButton("Comparar Registros")
+        font = QFont()
+        font.setPointSize(12)
+        font.setBold(True)
+        self.boton_comparar.setFont(font)
+        self.boton_comparar.setMinimumHeight(40)
+        self.boton_comparar.clicked.connect(self.alternar_modo_comparacion)
+        diseno_principal.addWidget(self.boton_comparar)
+
 
     def _crear_vista_tabla(self):
         tabla = QTableView()
@@ -321,43 +352,41 @@ class AppGestorBecas(QMainWindow):
         texto_busqueda = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
 
         if tipo_tabla == 'becados':
-            resultados = self.todos_los_becados
-            if filtro_carrera != "Todas las Carreras":
-                resultados = [r for r in resultados if r['carrera'] == filtro_carrera]
-            if filtro_semestre != "Todos los Semestres":
-                semestre_num = SEMESTRES.get(filtro_semestre)
-                resultados = [r for r in resultados if r['semestre'] == semestre_num]
-            if filtro_tipocedula != "Todos los Tipos":
-                resultados = [r for r in resultados if r['tipo_cedula'] == filtro_tipocedula]
-            if texto_busqueda:
-                resultados = [r for r in resultados if texto_busqueda in str(r['cedula']) or
-                              texto_busqueda in normalizar_texto(r['nombres']) or
-                              texto_busqueda in normalizar_texto(r['apellidos'])]
-            self.poblar_tabla_becados(resultados)
-        
-        elif tipo_tabla == 'inscritos':
-            col_carrera = self.encabezados_inscritos.index("Carrera") if "Carrera" in self.encabezados_inscritos else -1
-            col_semestre = self.encabezados_inscritos.index("Semestre") if "Semestre" in self.encabezados_inscritos else -1
-            col_tipocedula = self.encabezados_inscritos.index("T. Cédula") if "T. Cédula" in self.encabezados_inscritos else -1
-
-            for row in range(self.modelo_inscritos.rowCount()):
+            for row in range(self.modelo_becados.rowCount()):
                 mostrar_fila = True
                 
-                if filtro_carrera != "Todas las Carreras" and col_carrera != -1:
-                    if self.modelo_inscritos.item(row, col_carrera).text() != filtro_carrera:
-                        mostrar_fila = False
+                tipo_ced_item = self.modelo_becados.item(row, 0).text()
+                cedula_item = self.modelo_becados.item(row, 1).text()
+                nombres_item = self.modelo_becados.item(row, 2).text()
+                apellidos_item = self.modelo_becados.item(row, 3).text()
+                carrera_item = self.modelo_becados.item(row, 4).text()
+                semestre_item = self.modelo_becados.item(row, 5).text()
                 
-                if mostrar_fila and filtro_semestre != "Todos los Semestres" and col_semestre != -1:
-                    if self.modelo_inscritos.item(row, col_semestre).text() != filtro_semestre:
-                        mostrar_fila = False
-
-                if mostrar_fila and filtro_tipocedula != "Todos los Tipos" and col_tipocedula != -1:
-                    if self.modelo_inscritos.item(row, col_tipocedula).text() != filtro_tipocedula:
-                        mostrar_fila = False
-                
+                if filtro_carrera != "Todas las Carreras" and carrera_item != filtro_carrera:
+                    mostrar_fila = False
+                if mostrar_fila and filtro_semestre != "Todos los Semestres" and semestre_item != filtro_semestre:
+                    mostrar_fila = False
+                if mostrar_fila and filtro_tipocedula != "Todos los Tipos" and tipo_ced_item != filtro_tipocedula:
+                    mostrar_fila = False
                 if mostrar_fila and texto_busqueda:
-                    fila_texto = "".join([self.modelo_inscritos.item(row, col).text() for col in range(self.modelo_inscritos.columnCount())])
-                    if texto_busqueda not in normalizar_texto(fila_texto):
+                    if not (texto_busqueda in str(cedula_item) or texto_busqueda in normalizar_texto(nombres_item) or texto_busqueda in normalizar_texto(apellidos_item)):
+                        mostrar_fila = False
+                self.tabla_becados.setRowHidden(row, not mostrar_fila)
+        
+        elif tipo_tabla == 'inscritos':
+            for row in range(self.modelo_inscritos.rowCount()):
+                mostrar_fila = True
+                fila_datos = {self.modelo_inscritos.horizontalHeaderItem(col).text(): self.modelo_inscritos.item(row, col).text() for col in range(self.modelo_inscritos.columnCount())}
+                
+                if filtro_carrera != "Todas las Carreras" and fila_datos.get("Carrera") != filtro_carrera:
+                    mostrar_fila = False
+                if mostrar_fila and filtro_semestre != "Todos los Semestres" and fila_datos.get("Semestre") != filtro_semestre:
+                    mostrar_fila = False
+                if mostrar_fila and filtro_tipocedula != "Todos los Tipos" and fila_datos.get("T. Cédula") != filtro_tipocedula:
+                    mostrar_fila = False
+                if mostrar_fila and texto_busqueda:
+                    fila_texto_completo = "".join(fila_datos.values())
+                    if texto_busqueda not in normalizar_texto(fila_texto_completo):
                         mostrar_fila = False
                 
                 self.tabla_inscritos.setRowHidden(row, not mostrar_fila)
@@ -522,6 +551,9 @@ class AppGestorBecas(QMainWindow):
                 self.poblar_tabla_inscritos(self.encabezados_inscritos, self.todos_los_inscritos)
         except (sqlite3.Error, json.JSONDecodeError) as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los estudiantes inscritos: {e}")
+        finally:
+            if self.modo_comparacion:
+                self.pintar_comparacion()
 
     def poblar_tabla_inscritos(self, encabezados, filas):
         self.modelo_inscritos.clear()
@@ -567,6 +599,9 @@ class AppGestorBecas(QMainWindow):
             self._actualizar_estado_botones()
         except sqlite3.Error as e:
             mostrar_error_critico("Error de Base de Datos", f"No se pudieron cargar los datos: {e}")
+        finally:
+            if self.modo_comparacion:
+                self.pintar_comparacion()
 
     def agregar_estudiante_becado(self):
         if len(self.todos_los_becados) >= LIMITE_BECADOS:
@@ -713,6 +748,93 @@ class AppGestorBecas(QMainWindow):
             mostrar_error_critico(f"Error al Exportar {formato.upper()}", "No se pudo guardar el archivo. Asegúrate de que el archivo no esté abierto en otro programa (como Excel) y vuelve a intentarlo.")
         except Exception as e:
             mostrar_error_critico(f"Error al Exportar {formato.upper()}", f"No se pudo guardar el reporte: {e}")
+
+    def alternar_modo_comparacion(self):
+        self.modo_comparacion = not self.modo_comparacion
+        if self.modo_comparacion:
+            self.pintar_comparacion()
+            self.boton_comparar.setText("Quitar Comparación")
+        else:
+            self.despintar_tablas()
+            self.boton_comparar.setText("Comparar Registros")
+
+    def despintar_tablas(self):
+        for row in range(self.modelo_becados.rowCount()):
+            for col in range(self.modelo_becados.columnCount()):
+                self.modelo_becados.item(row, col).setBackground(QBrush())
+        
+        for row in range(self.modelo_inscritos.rowCount()):
+            for col in range(self.modelo_inscritos.columnCount()):
+                self.modelo_inscritos.item(row, col).setBackground(QBrush())
+
+    def pintar_comparacion(self):
+        self.despintar_tablas()
+        
+        becados_map = {str(b['cedula']): b for b in self.todos_los_becados}
+        inscritos_map = {str(i.get('Cédula')): i for i in self.todos_los_inscritos if 'Cédula' in i and i.get('Cédula')}
+        
+        cedulas_becados = set(becados_map.keys())
+        cedulas_inscritos = set(inscritos_map.keys())
+        cedulas_comunes = cedulas_becados.intersection(cedulas_inscritos)
+        
+        mismatched_fields = {}
+        mapa_comparacion = {
+            "T. Cédula": ('tipo_cedula', 'T. Cédula'),
+            "Nombres": ('nombres', 'Nombres'),
+            "Apellidos": ('apellidos', 'Apellidos'),
+            "Carrera": ('carrera', 'Carrera'),
+            "Semestre": ('semestre', 'Semestre')
+        }
+        
+        for cedula in cedulas_comunes:
+            becado_data = becados_map[cedula]
+            inscrito_data = inscritos_map[cedula]
+            mismatches = []
+            
+            for header, (key_becado, key_inscrito) in mapa_comparacion.items():
+                val_becado = becado_data.get(key_becado)
+                val_inscrito = inscrito_data.get(key_inscrito)
+                
+                if header == "Semestre":
+                    val_inscrito = SEMESTRES.get(str(val_inscrito).upper(), -1)
+                    
+                if str(val_becado) != str(val_inscrito):
+                    mismatches.append(header)
+            
+            if mismatches:
+                mismatched_fields[cedula] = mismatches
+                
+        # Pintar tabla de becados
+        for row in range(self.modelo_becados.rowCount()):
+            cedula = self.modelo_becados.item(row, 1).text()
+            if cedula in cedulas_comunes:
+                for col in range(self.modelo_becados.columnCount()):
+                    self.modelo_becados.item(row, col).setBackground(QBrush(COLOR_VERDE_PASTEL))
+                if cedula in mismatched_fields:
+                    for col in range(self.modelo_becados.columnCount()):
+                        header = self.modelo_becados.horizontalHeaderItem(col).text()
+                        if header in mismatched_fields.get(cedula, []):
+                            self.modelo_becados.item(row, col).setBackground(QBrush(COLOR_AMARILLO_PASTEL))
+            else:
+                for col in range(self.modelo_becados.columnCount()):
+                    self.modelo_becados.item(row, col).setBackground(QBrush(COLOR_ROJO_PASTEL))
+
+        # Pintar tabla de inscritos
+        if "Cédula" in self.encabezados_inscritos:
+            cedula_col_idx = self.encabezados_inscritos.index('Cédula')
+            for row in range(self.modelo_inscritos.rowCount()):
+                cedula = self.modelo_inscritos.item(row, cedula_col_idx).text()
+                if cedula in cedulas_comunes:
+                    for col in range(self.modelo_inscritos.columnCount()):
+                        self.modelo_inscritos.item(row, col).setBackground(QBrush(COLOR_VERDE_PASTEL))
+                    if cedula in mismatched_fields:
+                        for header_mismatch in mismatched_fields.get(cedula, []):
+                            if header_mismatch in self.encabezados_inscritos:
+                                col_mismatch = self.encabezados_inscritos.index(header_mismatch)
+                                self.modelo_inscritos.item(row, col_mismatch).setBackground(QBrush(COLOR_AMARILLO_PASTEL))
+                else:
+                    for col in range(self.modelo_inscritos.columnCount()):
+                        self.modelo_inscritos.item(row, col).setBackground(QBrush(COLOR_ROJO_PASTEL))
 
     def closeEvent(self, evento):
         self.conexion_bd.close()
