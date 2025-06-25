@@ -234,7 +234,6 @@ class AppGestorBecas(QMainWindow):
     def _crear_barra_menu(self):
         menu_bar = self.menuBar()
         
-        # Menú Base de Datos
         menu_db = menu_bar.addMenu("Base de Datos")
         accion_guardar = QAction("Guardar", self)
         accion_guardar.triggered.connect(self.guardar_bd)
@@ -250,7 +249,6 @@ class AppGestorBecas(QMainWindow):
         accion_limpiar.triggered.connect(self.limpiar_bd)
         menu_db.addAction(accion_limpiar)
 
-        # Menú Ayuda
         menu_ayuda = menu_bar.addMenu("Ayuda")
         accion_acerca_de = QAction("Acerca de", self)
         accion_acerca_de.triggered.connect(self.mostrar_acerca_de)
@@ -886,15 +884,18 @@ class AppGestorBecas(QMainWindow):
         if tipo_tabla == 'becados':
             if not self.todos_los_becados: return pd.DataFrame()
             df = pd.DataFrame(self.todos_los_becados)
-            df['Semestre'] = df['semestre'].map({v: k for k, v in SEMESTRES.items()})
-            df.rename(columns={'tipo_cedula': 'T. Cédula', 'cedula': 'Cédula', 'nombres': 'Nombres', 'apellidos': 'Apellidos', 'carrera': 'Carrera'}, inplace=True)
+            df.rename(columns={'tipo_cedula': 'T. Cédula', 'cedula': 'Cédula', 'nombres': 'Nombres', 'apellidos': 'Apellidos', 'carrera': 'Carrera', 'semestre':'Semestre'}, inplace=True)
             df['Cédula'] = pd.to_numeric(df['Cédula'], errors='coerce')
-            df['Semestre'] = df['Semestre'].apply(lambda x: str(x) if pd.notna(x) else "")
+            df['Semestre'] = pd.to_numeric(df['Semestre'], errors='coerce')
             return df[['T. Cédula', 'Cédula', 'Nombres', 'Apellidos', 'Carrera', 'Semestre']]
         elif tipo_tabla == 'inscritos':
             if not self.todos_los_inscritos: return pd.DataFrame()
             df = pd.DataFrame(self.todos_los_inscritos)
-            if "Semestre" in df.columns: df["Semestre"] = pd.to_numeric(df["Semestre"], errors='coerce').fillna(df["Semestre"])
+            if 'Cédula' in df.columns:
+                df['Cédula'] = pd.to_numeric(df['Cédula'], errors='coerce')
+            if 'Semestre' in df.columns:
+                df['Semestre'] = df['Semestre'].apply(lambda x: SEMESTRES.get(str(x).upper(), pd.NA))
+                df['Semestre'] = pd.to_numeric(df['Semestre'], errors='coerce')
             return df
 
     def exportar_datos(self, formato, tipo_tabla):
@@ -909,7 +910,14 @@ class AppGestorBecas(QMainWindow):
 
         default_filename = f"reporte_{tipo_tabla}.{formato if formato != 'excel' else 'xlsx'}"
         file_filter = f"Archivos {formato.upper()} (*.{formato if formato != 'excel' else 'xlsx'})"
-        if formato == 'excel': save_func = lambda path: df.to_excel(path, index=False)
+        if formato == 'excel': 
+            def save_func(path):
+                with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False, sheet_name='Reporte')
+                    worksheet = writer.sheets['Reporte']
+                    for i, col in enumerate(df.columns):
+                        column_len = max(df[col].astype(str).str.len().max(), len(col)) + 2
+                        worksheet.set_column(i, i, column_len)
         elif formato == 'csv': save_func = lambda path: df.to_csv(path, index=False, encoding='utf-8-sig')
         elif formato == 'pdf':
             def save_func(path):
@@ -991,7 +999,6 @@ class AppGestorBecas(QMainWindow):
             if mismatches:
                 mismatched_fields[cedula] = mismatches
                 
-        # Pintar tabla de becados
         for row in range(self.modelo_becados.rowCount()):
             cedula = self.modelo_becados.item(row, 1).text()
             if cedula in cedulas_comunes:
@@ -1006,7 +1013,6 @@ class AppGestorBecas(QMainWindow):
                 for col in range(self.modelo_becados.columnCount()):
                     self.modelo_becados.item(row, col).setBackground(QBrush(COLOR_ROJO_PASTEL))
 
-        # Pintar tabla de inscritos
         if "Cédula" in self.encabezados_inscritos:
             cedula_col_idx = self.encabezados_inscritos.index('Cédula')
             for row in range(self.modelo_inscritos.rowCount()):
