@@ -1,0 +1,5 @@
+pandas
+PySide6
+reportlab
+openpyxl
+xlsxwriter
