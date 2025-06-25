@@ -28,12 +28,12 @@ except ImportError:
 
 # --- Constantes ---
 CARRERAS = [
-    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones",
+    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones", "Ingeniería Mecánica", 
     "Ingeniería Eléctrica", "Contaduría", "Administración de Desastres"
 ]
 SEMESTRES = {
     "CINU": 0, "1": 1, "2": 2, "3": 3, "4": 4,
-    "5": 5, "6": 6, "7": 7, "8": 8
+    "5": 5, "6": 6, "7": 7, "8": 8, "9": 9
 }
 ARCHIVO_BD = 'estudiantes.db'
 ENCABEZADOS_VISUALIZACION = ["T. Cédula", "Cédula", "Nombres", "Apellidos", "Carrera", "Semestre"]
@@ -64,7 +64,7 @@ def inicializar_bd():
                 nombres TEXT NOT NULL,
                 apellidos TEXT NOT NULL,
                 carrera TEXT NOT NULL,
-                semestre INTEGER NOT NULL CHECK(semestre BETWEEN 0 AND 8)
+                semestre INTEGER NOT NULL CHECK(semestre BETWEEN 0 AND 9)
             )
         ''')
         cursor.execute('''
@@ -200,12 +200,6 @@ class DialogoEstudiante(QDialog):
         return {'tipo_cedula': self.tipo_cedula_combo.currentText(), 'cedula': int(cedula_texto),
                 'nombres': nombre, 'apellidos': apellido, 'carrera': self.carrera_combo.currentText(),
                 'semestre': SEMESTRES[self.semestre_combo.currentText()]}
-
-class CustomTableView(QTableView):
-    """A custom QTableView that clears selection on focus out."""
-    def focusOutEvent(self, event):
-        self.clearSelection()
-        super().focusOutEvent(event)
 
 # --- Ventana Principal ---
 class AppGestorBecas(QMainWindow):
@@ -428,7 +422,7 @@ class AppGestorBecas(QMainWindow):
 
 
     def _crear_vista_tabla(self):
-        tabla = CustomTableView()
+        tabla = QTableView()
         tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
         tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
         tabla.setSelectionMode(QAbstractItemView.SingleSelection)
