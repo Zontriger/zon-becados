@@ -1095,10 +1095,12 @@ def mostrar_mensaje_advertencia(titulo, texto): mostrar_cuadro_mensaje(QMessageB
 def mostrar_error_critico(titulo, texto): mostrar_cuadro_mensaje(QMessageBox.Critical, titulo, texto)
 
 if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    
     if not PDF_DISPONIBLE:
         mostrar_mensaje_advertencia("Dependencia Faltante", "La librería 'reportlab' no está instalada.\nLa exportación a PDF no estará disponible.\n\nPara activarla, instala con: pip install reportlab")
+    
     inicializar_bd()
-    app = QApplication(sys.argv)
     ventana = AppGestorBecas()
     ventana.show()
     sys.exit(app.exec())
