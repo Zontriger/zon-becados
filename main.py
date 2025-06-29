@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView,
     QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
-    QFormLayout, QDialogButtonBox, QLabel, QMenu, QCheckBox, QTextEdit
+    QFormLayout, QDialogButtonBox, QLabel, QMenu, QCheckBox, QTextEdit,
+    QButtonGroup
 )
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QAction, QIcon, QColor, QBrush, QFont
 from PySide6.QtCore import Qt, Signal
@@ -435,10 +436,14 @@ class AppGestorBecas(QMainWindow):
         self.check_verde = QCheckBox("Verde")
         self.check_amarillo = QCheckBox("Amarillo")
         self.check_rojo = QCheckBox("Rojo")
-        self.check_verde.stateChanged.connect(self._aplicar_filtros)
-        self.check_amarillo.stateChanged.connect(self._aplicar_filtros)
-        self.check_rojo.stateChanged.connect(self._aplicar_filtros)
-        
+
+        self.grupo_botones_color = QButtonGroup(self)
+        self.grupo_botones_color.setExclusive(False)
+        self.grupo_botones_color.addButton(self.check_verde)
+        self.grupo_botones_color.addButton(self.check_amarillo)
+        self.grupo_botones_color.addButton(self.check_rojo)
+        self.grupo_botones_color.buttonClicked.connect(self._on_color_filter_clicked)
+
         layout_filtros_color.addStretch()
         layout_filtros_color.addWidget(self.check_verde)
         layout_filtros_color.addWidget(self.check_amarillo)
@@ -461,6 +466,13 @@ class AppGestorBecas(QMainWindow):
             layout_recuentos.addWidget(lbl)
         diseno_principal.addLayout(layout_recuentos)
 
+    def _on_color_filter_clicked(self, clicked_button):
+        """Maneja la selección exclusiva de los filtros de color."""
+        if clicked_button.isChecked():
+            for button in self.grupo_botones_color.buttons():
+                if button is not clicked_button:
+                    button.setChecked(False)
+        self._aplicar_filtros()
 
     def _crear_vista_tabla(self):
         tabla = QTableView()
@@ -563,7 +575,8 @@ class AppGestorBecas(QMainWindow):
             filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
             filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}").currentText()
             filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}").currentText()
-            texto_busqueda = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
+            texto_busqueda_normalizado = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
+            palabras_busqueda = texto_busqueda_normalizado.split()
 
             ver_verde = self.check_verde.isChecked()
             ver_amarillo = self.check_amarillo.isChecked()
@@ -580,9 +593,10 @@ class AppGestorBecas(QMainWindow):
                     mostrar_por_texto = False
                 if mostrar_por_texto and filtro_tipocedula != "Todos los Tipos" and fila_datos.get("T. Cédula") != filtro_tipocedula:
                     mostrar_por_texto = False
-                if mostrar_por_texto and texto_busqueda:
-                    texto_completo_fila = "".join(fila_datos.values())
-                    if texto_busqueda not in normalizar_texto(texto_completo_fila):
+                
+                if mostrar_por_texto and palabras_busqueda:
+                    texto_completo_fila = normalizar_texto(" ".join(fila_datos.values()))
+                    if not all(palabra in texto_completo_fila for palabra in palabras_busqueda):
                         mostrar_por_texto = False
                 
                 mostrar_final = mostrar_por_texto
@@ -768,6 +782,7 @@ class AppGestorBecas(QMainWindow):
             self.actualizar_recuentos()
             if self.modo_comparacion:
                 self.pintar_comparacion()
+            self._aplicar_filtros()
 
     def poblar_tabla_inscritos(self, encabezados, filas):
         self.modelo_inscritos.clear()
@@ -819,6 +834,7 @@ class AppGestorBecas(QMainWindow):
             self.actualizar_recuentos()
             if self.modo_comparacion:
                 self.pintar_comparacion()
+            self._aplicar_filtros()
 
     def agregar_estudiante_becado(self):
         if len(self.todos_los_becados) >= LIMITE_BECADOS:
@@ -1219,3 +1235,4 @@ if __name__ == '__main__':
     ventana = AppGestorBecas()
     ventana.show()
     sys.exit(app.exec())
+
