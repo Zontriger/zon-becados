@@ -29,7 +29,7 @@ except ImportError:
 
 # --- Constantes ---
 CARRERAS = [
-    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones", "Ingeniería Mecánica", 
+    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones", "Ingeniería Mecánica",
     "Ingeniería Eléctrica", "Contaduría", "Administración de Desastres"
 ]
 SEMESTRES = {
@@ -253,18 +253,13 @@ class AppGestorBecas(QMainWindow):
         screen = QApplication.primaryScreen()
         if screen:
             available_geometry = screen.availableGeometry()
-            # Establecer un tamaño predeterminado del 85% del espacio disponible
             width = int(available_geometry.width() * 0.85)
             height = int(available_geometry.height() * 0.85)
             self.resize(width, height)
-            
-            # Centrar la ventana
             self.move(available_geometry.center() - self.rect().center())
         else:
-            # Fallback a un tamaño fijo si no se puede obtener la pantalla
             self.resize(1200, 700)
 
-        # Establecer un tamaño mínimo para la ventana
         self.setMinimumSize(1024, 600)
 
         if os.path.exists('icon.ico'):
@@ -424,18 +419,18 @@ class AppGestorBecas(QMainWindow):
         diseno_principal = QVBoxLayout(widget_principal)
 
         layout_tablas = QHBoxLayout()
-        grupo_inscritos = self.crear_grupo_tabla("Estudiantes Inscritos", "inscritos")
+        self.grupo_inscritos = self.crear_grupo_tabla("Estudiantes Inscritos", "inscritos")
         self.tabla_inscritos, self.modelo_inscritos = self._crear_vista_tabla()
         self.tabla_inscritos.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'inscritos'))
-        grupo_inscritos.layout().addWidget(self.tabla_inscritos)
+        self.grupo_inscritos.layout().addWidget(self.tabla_inscritos)
         
-        grupo_becados = self.crear_grupo_tabla("Estudiantes Becados", "becados")
+        self.grupo_becados = self.crear_grupo_tabla("Estudiantes Becados", "becados")
         self.tabla_becados, self.modelo_becados = self._crear_vista_tabla()
         self.tabla_becados.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'becados'))
-        grupo_becados.layout().addWidget(self.tabla_becados)
+        self.grupo_becados.layout().addWidget(self.tabla_becados)
 
-        layout_tablas.addWidget(grupo_inscritos, 1)
-        layout_tablas.addWidget(grupo_becados, 1)
+        layout_tablas.addWidget(self.grupo_inscritos, 1)
+        layout_tablas.addWidget(self.grupo_becados, 1)
         diseno_principal.addLayout(layout_tablas)
 
         layout_controles_comp = QHBoxLayout()
@@ -584,6 +579,29 @@ class AppGestorBecas(QMainWindow):
             else:
                 self.boton_agregar_becado.setToolTip("")
 
+    def _actualizar_titulos_grupos(self):
+        """Actualiza los títulos de los QGroupBox según el filtro de color activo y el conteo de filas visibles."""
+        titulo_extra_becados = ""
+        titulo_extra_inscritos = ""
+
+        if self.modo_comparacion:
+            if self.check_verde.isChecked():
+                titulo_extra_becados = " (inscritos)"
+                titulo_extra_inscritos = " (becados)"
+            elif self.check_amarillo.isChecked():
+                titulo_extra_becados = " (datos incongruentes)"
+                titulo_extra_inscritos = " (datos incongruentes)"
+            elif self.check_rojo.isChecked():
+                titulo_extra_becados = " (no inscritos)"
+                titulo_extra_inscritos = " (no becados)"
+        
+        becados_visibles = sum(1 for i in range(self.modelo_becados.rowCount()) if not self.tabla_becados.isRowHidden(i))
+        inscritos_visibles = sum(1 for i in range(self.modelo_inscritos.rowCount()) if not self.tabla_inscritos.isRowHidden(i))
+
+        self.grupo_becados.setTitle(f"Estudiantes Becados{titulo_extra_becados} ({becados_visibles})")
+        self.grupo_inscritos.setTitle(f"Estudiantes Inscritos{titulo_extra_inscritos} ({inscritos_visibles})")
+
+
     def _aplicar_filtros(self):
         for tipo_tabla in ['becados', 'inscritos']:
             tabla = getattr(self, f"tabla_{tipo_tabla}")
@@ -634,6 +652,9 @@ class AppGestorBecas(QMainWindow):
                     mostrar_final = mostrar_por_color
 
                 tabla.setRowHidden(row, not mostrar_final)
+        
+        self._actualizar_titulos_grupos()
+
 
     def poblar_tabla_becados(self, datos):
         self.modelo_becados.clear()
@@ -788,6 +809,7 @@ class AppGestorBecas(QMainWindow):
             cursor.execute("SELECT encabezados FROM inscritos_encabezados WHERE id = 1")
             res_encabezados = cursor.fetchone()
             self.modelo_inscritos.clear(); self.modelo_inscritos.setHorizontalHeaderLabels([])
+            self.todos_los_inscritos = []
             if res_encabezados:
                 self.encabezados_inscritos = json.loads(res_encabezados['encabezados'])
                 cursor.execute("SELECT datos_fila FROM inscritos")
@@ -815,7 +837,13 @@ class AppGestorBecas(QMainWindow):
                 if enc in ["T. Cédula", "Semestre"]: elementos[i].setTextAlignment(Qt.AlignCenter)
             self.modelo_inscritos.appendRow(elementos)
         
-        self.tabla_inscritos.resizeColumnsToContents()
+        stretch_cols = ["Nombres", "Apellidos", "Carrera"]
+        for i, header in enumerate(encabezados):
+            if header in stretch_cols:
+                self.tabla_inscritos.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch)
+            else:
+                self.tabla_inscritos.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
+
 
     def limpiar_registros_tabla(self, tipo_tabla):
         titulo = f"¿Estás seguro de limpiar el registro de los estudiantes de la tabla '{tipo_tabla}'?"
@@ -1022,41 +1050,90 @@ class AppGestorBecas(QMainWindow):
         dialogo.accept()
         self._editar_becado_con_datos(datos_becado)
 
-    def obtener_datos_df(self, tipo_tabla):
+    def obtener_datos_visibles_df(self, tipo_tabla):
+        """Obtiene un DataFrame solo con las filas visibles en la tabla."""
         if tipo_tabla == 'becados':
-            if not self.todos_los_becados: return pd.DataFrame()
-            df = pd.DataFrame(self.todos_los_becados)
+            modelo = self.modelo_becados
+            tabla = self.tabla_becados
+            todos_los_datos = self.todos_los_becados
+            cedula_key = 'cedula'
+        else: # 'inscritos'
+            modelo = self.modelo_inscritos
+            tabla = self.tabla_inscritos
+            todos_los_datos = self.todos_los_inscritos
+            cedula_key = 'Cédula'
+
+        if modelo.rowCount() == 0:
+            return pd.DataFrame()
+
+        filas_visibles_data = []
+        cedula_col_idx = -1
+        try:
+            headers = [modelo.horizontalHeaderItem(i).text() for i in range(modelo.columnCount())]
+            cedula_col_idx = headers.index("Cédula")
+        except ValueError:
+            return pd.DataFrame() # No hay columna de cédula para mapear
+
+        for row in range(modelo.rowCount()):
+            if not tabla.isRowHidden(row):
+                cedula_str = modelo.item(row, cedula_col_idx).text()
+                dato_completo = next((d for d in todos_los_datos if str(d.get(cedula_key)) == cedula_str), None)
+                if dato_completo:
+                    filas_visibles_data.append(dato_completo)
+        
+        if not filas_visibles_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(filas_visibles_data)
+        if tipo_tabla == 'becados':
+            df = df.copy() # Evitar SettingWithCopyWarning
             df.rename(columns={'tipo_cedula': 'T. Cédula', 'cedula': 'Cédula', 'nombres': 'Nombres', 'apellidos': 'Apellidos', 'carrera': 'Carrera', 'semestre':'Semestre'}, inplace=True)
-            df['Cédula'] = pd.to_numeric(df['Cédula'], errors='coerce')
-            df['Semestre'] = pd.to_numeric(df['Semestre'], errors='coerce')
-            return df[['T. Cédula', 'Cédula', 'Nombres', 'Apellidos', 'Carrera', 'Semestre']]
-        elif tipo_tabla == 'inscritos':
-            if not self.todos_los_inscritos: return pd.DataFrame()
-            df = pd.DataFrame(self.todos_los_inscritos)
-            if 'Cédula' in df.columns:
-                df['Cédula'] = pd.to_numeric(df['Cédula'], errors='coerce')
-            if 'Semestre' in df.columns:
-                df['Semestre'] = df['Semestre'].apply(lambda x: SEMESTRES.get(str(x).upper(), pd.NA))
-                df['Semestre'] = pd.to_numeric(df['Semestre'], errors='coerce')
-            return df
+            df['Semestre'] = df['Semestre'].apply(lambda x: next((k for k, v in SEMESTRES.items() if v == x), ""))
+            df = df[['T. Cédula', 'Cédula', 'Nombres', 'Apellidos', 'Carrera', 'Semestre']]
+
+        return df
+
 
     def exportar_datos(self, formato, tipo_tabla):
-        modelo = self.modelo_becados if tipo_tabla == 'becados' else self.modelo_inscritos
-        if modelo.rowCount() == 0:
-            mostrar_mensaje_advertencia("Atención", f"No hay estudiantes {tipo_tabla} para exportar.")
-            return
-        df = self.obtener_datos_df(tipo_tabla)
+        titulo_base = f"Reporte de Estudiantes {tipo_tabla.capitalize()}"
+        titulo_extra = ""
+        
+        if self.modo_comparacion:
+            if self.check_verde.isChecked():
+                titulo_extra = " (inscritos)" if tipo_tabla == 'becados' else " (becados)"
+            elif self.check_amarillo.isChecked():
+                titulo_extra = " (datos incongruentes)"
+            elif self.check_rojo.isChecked():
+                titulo_extra = " (no inscritos)" if tipo_tabla == 'becados' else " (no becados)"
+        
+        titulo_reporte = f"{titulo_base}{titulo_extra}"
+
+        # Mostrar aviso solo si hay un filtro de color activo
+        if titulo_extra:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setWindowTitle("Confirmar Exportación con Filtro")
+            msg_box.setText(f"Se exportarán solo los registros actualmente visibles que coinciden con el filtro '{titulo_extra.strip()}'.\n\n¿Deseas continuar?")
+            boton_si = msg_box.addButton("Sí", QMessageBox.YesRole)
+            msg_box.addButton("No", QMessageBox.NoRole)
+            msg_box.exec()
+            if msg_box.clickedButton() != boton_si:
+                return
+
+        df = self.obtener_datos_visibles_df(tipo_tabla)
+        
         if df.empty:
-            mostrar_mensaje_advertencia("Atención", "No hay datos para exportar.")
+            mostrar_mensaje_advertencia("Atención", f"No hay estudiantes visibles para exportar.")
             return
 
-        default_filename = f"reporte_{tipo_tabla}.{formato if formato != 'excel' else 'xlsx'}"
+        default_filename = f"reporte_{tipo_tabla.replace(' ', '_')}{titulo_extra.replace(' ', '_').lower()}.{formato if formato != 'excel' else 'xlsx'}"
         file_filter = f"Archivos {formato.upper()} (*.{formato if formato != 'excel' else 'xlsx'})"
+        
         if formato == 'excel': 
             def save_func(path):
                 with pd.ExcelWriter(path, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False, sheet_name='Reporte')
-                    worksheet = writer.sheets['Reporte']
+                    df.to_excel(writer, index=False, sheet_name=titulo_reporte[:31]) # Límite de 31 caracteres para nombres de hoja
+                    worksheet = writer.sheets[titulo_reporte[:31]]
                     for i, col in enumerate(df.columns):
                         column_len = max(df[col].astype(str).str.len().max(), len(col)) + 2
                         worksheet.set_column(i, i, column_len)
@@ -1065,7 +1142,8 @@ class AppGestorBecas(QMainWindow):
             def save_func(path):
                 df_pdf = df.astype(str)
                 doc = SimpleDocTemplate(path)
-                story = [Paragraph(f"Reporte de Estudiantes {tipo_tabla.capitalize()}", getSampleStyleSheet()['h1']), Spacer(1, 0.2*inch)]
+                styles = getSampleStyleSheet()
+                story = [Paragraph(titulo_reporte, styles['h1']), Spacer(1, 0.2*inch)]
                 table = Table([df_pdf.columns.tolist()] + df_pdf.values.tolist())
                 table.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.grey), ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
                                            ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
@@ -1073,6 +1151,7 @@ class AppGestorBecas(QMainWindow):
                                            ('GRID', (0,0), (-1,-1), 1, colors.black)]))
                 story.append(table)
                 doc.build(story)
+        
         ruta_guardado, _ = QFileDialog.getSaveFileName(self, f"Guardar Reporte {formato.upper()}", default_filename, file_filter)
         if not ruta_guardado: return
         try:
@@ -1091,6 +1170,8 @@ class AppGestorBecas(QMainWindow):
         else:
             self.despintar_tablas()
             self.boton_comparar.setText("Colorear Registros")
+            for button in self.grupo_botones_color.buttons():
+                button.setChecked(False)
         
         self.actualizar_recuentos()
         self._aplicar_filtros()
