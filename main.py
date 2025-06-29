@@ -87,11 +87,17 @@ def inicializar_bd():
 
 # --- Diálogo para Ver Información del Estudiante ---
 class DialogoVerEstudiante(QDialog):
-    """Diálogo para mostrar la información completa de un estudiante (solo lectura)."""
-    def __init__(self, parent=None, datos_estudiante=None):
+    """Diálogo para mostrar la información completa de un estudiante y permitir acciones."""
+    # Signals para comunicar acciones a la ventana principal
+    agregar_a_becados = Signal()
+    quitar_de_becados = Signal()
+    editar_becado = Signal()
+
+    def __init__(self, parent=None, datos_estudiante=None, tipo_tabla=None, ya_es_becado=False):
         super().__init__(parent)
         self.setWindowTitle("Información del Estudiante")
-        
+        self.setMinimumWidth(250)
+
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
@@ -100,17 +106,52 @@ class DialogoVerEstudiante(QDialog):
             'Nombres': 'Nombres:', 'Apellidos': 'Apellidos:',
             'Carrera': 'Carrera:', 'Semestre': 'Semestre:'
         }
-        for clave, etiqueta in mapa_etiquetas.items():
-            valor = datos_estudiante.get(clave, 'N/A')
-            form_layout.addRow(QLabel(etiqueta), QLabel(str(valor)))
         
-        main_layout.addLayout(form_layout)
+        campos_conocidos = list(mapa_etiquetas.keys())
+        campos_disponibles = list(datos_estudiante.keys())
+        
+        for campo in campos_conocidos:
+            if campo in datos_estudiante:
+                form_layout.addRow(QLabel(f"<b>{mapa_etiquetas[campo]}</b>"), QLabel(str(datos_estudiante[campo])))
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
-        button_box.setCenterButtons(True)
-        button_box.accepted.connect(self.accept)
+        for campo in campos_disponibles:
+            if campo not in campos_conocidos:
+                form_layout.addRow(QLabel(f"<b>{campo}:</b>"), QLabel(str(datos_estudiante[campo])))
+
+        main_layout.addLayout(form_layout)
+        main_layout.addStretch(1)
+
+        # Botones de acción (arriba de OK)
+        if tipo_tabla == 'inscritos':
+            boton_accion = QPushButton("Agregar a Becados")
+            if ya_es_becado:
+                boton_accion.setText("Ya es Becado")
+                boton_accion.setEnabled(False)
+                boton_accion.setToolTip("Este estudiante ya se encuentra en la lista de becados.")
+            else:
+                boton_accion.clicked.connect(self.agregar_a_becados.emit)
+            main_layout.addWidget(boton_accion)
+
+        elif tipo_tabla == 'becados':
+            boton_accion = QPushButton("Quitar de Becados")
+            boton_accion.clicked.connect(self.quitar_de_becados.emit)
+            main_layout.addWidget(boton_accion)
+            
+        # Botones de abajo (OK y Editar) - Centrados
+        layout_botones_inferior = QHBoxLayout()
+        layout_botones_inferior.addStretch(1) 
+
+        if tipo_tabla == 'becados':
+            boton_editar = QPushButton("Editar")
+            boton_editar.clicked.connect(self.editar_becado.emit)
+            layout_botones_inferior.addWidget(boton_editar)
+
+        boton_ok = QPushButton("OK")
+        boton_ok.clicked.connect(self.accept)
+        layout_botones_inferior.addWidget(boton_ok)
         
-        main_layout.addWidget(button_box)
+        layout_botones_inferior.addStretch(1)
+        main_layout.addLayout(layout_botones_inferior)
 
 
 # --- Diálogo para Agregar/Editar Estudiante ---
@@ -734,13 +775,15 @@ class AppGestorBecas(QMainWindow):
         if not filas:
             self.tabla_inscritos.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             return
+        
         self.tabla_inscritos.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         for fila_datos in filas:
             elementos = [QStandardItem(str(fila_datos.get(enc, ''))) for enc in encabezados]
             for i, enc in enumerate(encabezados):
                 if enc in ["T. Cédula", "Semestre"]: elementos[i].setTextAlignment(Qt.AlignCenter)
             self.modelo_inscritos.appendRow(elementos)
-        for i in range(len(encabezados)): self.tabla_inscritos.horizontalHeader().setSectionResizeMode(i, QHeaderView.Stretch if encabezados[i] not in ["T. Cédula", "Semestre"] else QHeaderView.ResizeToContents)
+        
+        self.tabla_inscritos.resizeColumnsToContents()
 
     def limpiar_registros_tabla(self, tipo_tabla):
         titulo = f"¿Estás seguro de limpiar el registro de los estudiantes de la tabla '{tipo_tabla}'?"
@@ -804,16 +847,32 @@ class AppGestorBecas(QMainWindow):
         if tipo_tabla == 'becados':
             cedula = self.modelo_becados.item(index.row(), 1).text()
             datos_estudiante_db = next((r for r in self.todos_los_becados if str(r['cedula']) == cedula), None)
-            if datos_estudiante_db:
-                datos_para_dialogo = {'T. Cédula': datos_estudiante_db.get('tipo_cedula'), 'Cédula': datos_estudiante_db.get('cedula'),
-                                      'Nombres': datos_estudiante_db.get('nombres'), 'Apellidos': datos_estudiante_db.get('apellidos'),
-                                      'Carrera': datos_estudiante_db.get('carrera'), 
-                                      'Semestre': next((k for k, v in SEMESTRES.items() if v == datos_estudiante_db.get('semestre')), "N/A")}
-                DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo).exec()
+            if not datos_estudiante_db: return
+
+            datos_para_dialogo = {
+                'T. Cédula': datos_estudiante_db.get('tipo_cedula'),
+                'Cédula': datos_estudiante_db.get('cedula'),
+                'Nombres': datos_estudiante_db.get('nombres'),
+                'Apellidos': datos_estudiante_db.get('apellidos'),
+                'Carrera': datos_estudiante_db.get('carrera'),
+                'Semestre': next((k for k, v in SEMESTRES.items() if v == datos_estudiante_db.get('semestre')), "N/A")
+            }
+            dialogo = DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo, tipo_tabla='becados')
+            dialogo.quitar_de_becados.connect(lambda: self._accion_quitar_desde_dialogo(datos_estudiante_db, dialogo))
+            dialogo.editar_becado.connect(lambda: self._accion_editar_desde_dialogo(datos_estudiante_db, dialogo))
+            dialogo.exec()
+
         elif tipo_tabla == 'inscritos':
             datos_para_dialogo = {self.modelo_inscritos.horizontalHeaderItem(col).text(): self.modelo_inscritos.item(index.row(), col).text()
                                   for col in range(self.modelo_inscritos.columnCount())}
-            DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo).exec()
+
+            cedula_inscrito = datos_para_dialogo.get('Cédula')
+            cedulas_becados_set = {str(b['cedula']) for b in self.todos_los_becados}
+            es_becado_actualmente = str(cedula_inscrito) in cedulas_becados_set if cedula_inscrito else False
+            
+            dialogo = DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo, tipo_tabla='inscritos', ya_es_becado=es_becado_actualmente)
+            dialogo.agregar_a_becados.connect(lambda: self._accion_agregar_desde_dialogo(datos_para_dialogo, dialogo))
+            dialogo.exec()
 
     def editar_estudiante_becado(self):
         filas_seleccionadas = self.tabla_becados.selectionModel().selectedRows()
@@ -822,9 +881,10 @@ class AppGestorBecas(QMainWindow):
             return
         cedula_a_editar = self.modelo_becados.item(filas_seleccionadas[0].row(), 1).text()
         datos_estudiante = next((b for b in self.todos_los_becados if str(b['cedula']) == cedula_a_editar), None)
-        
+        self._editar_becado_con_datos(datos_estudiante)
+
+    def _editar_becado_con_datos(self, datos_estudiante):
         if not datos_estudiante: return
-        
         id_estudiante = datos_estudiante['id']
         dialogo = DialogoEstudiante(self, datos_estudiante=datos_estudiante)
         dialogo.datos_estudiante_listos.connect(
@@ -853,15 +913,13 @@ class AppGestorBecas(QMainWindow):
             return
         cedula_a_eliminar = self.modelo_becados.item(filas_seleccionadas[0].row(), 1).text()
         datos_estudiante = next((b for b in self.todos_los_becados if str(b['cedula']) == cedula_a_eliminar), None)
-        
         if not datos_estudiante: return
+        self._eliminar_becado_por_id(datos_estudiante['id'], datos_estudiante['nombres'])
 
-        id_estudiante = datos_estudiante['id']
-        nombre = datos_estudiante['nombres']
-        
+    def _eliminar_becado_por_id(self, id_estudiante, nombre_estudiante):
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Question); msg_box.setWindowTitle("Confirmar Eliminación")
-        msg_box.setText(f"¿Seguro que quieres eliminar a {nombre}?")
+        msg_box.setText(f"¿Seguro que quieres eliminar a {nombre_estudiante} de la lista de becados?")
         boton_si = msg_box.addButton("Sí", QMessageBox.YesRole); msg_box.addButton("No", QMessageBox.NoRole)
         msg_box.exec()
         if msg_box.clickedButton() == boton_si:
@@ -871,8 +929,57 @@ class AppGestorBecas(QMainWindow):
                 self.conexion_bd.commit()
                 self.cargar_estudiantes_becados()
                 mostrar_mensaje_info("Éxito", "Estudiante eliminado.")
+                return True
             except sqlite3.Error as e:
                 mostrar_error_critico("Error de DB", f"No se pudo eliminar: {e}")
+        return False
+
+    def _accion_agregar_desde_dialogo(self, datos_inscrito, dialogo):
+        dialogo.accept()
+        if len(self.todos_los_becados) >= LIMITE_BECADOS:
+            mostrar_mensaje_advertencia("Límite Alcanzado", f"No se pueden agregar más estudiantes becados. El límite es {LIMITE_BECADOS}.")
+            return
+        try:
+            cedula_texto = datos_inscrito.get('Cédula', '').strip()
+            if not cedula_texto.isdigit():
+                mostrar_mensaje_advertencia("Dato Inválido", "La cédula del estudiante inscrito no es un número válido.")
+                return
+            cedula_int = int(cedula_texto)
+            cursor = self.conexion_bd.cursor()
+            cursor.execute("SELECT id FROM becados WHERE cedula = ?", (cedula_int,))
+            if cursor.fetchone():
+                # Este chequeo es una salvaguarda, la UI ya no debería permitir llegar aquí.
+                mostrar_mensaje_advertencia("Duplicado", f"El estudiante con cédula {cedula_int} ya es un becado.")
+                return
+            datos_para_db = {
+                'tipo_cedula': datos_inscrito.get('T. Cédula', 'V'), 'cedula': cedula_int,
+                'nombres': ' '.join(datos_inscrito.get('Nombres', 'N/A').strip().split()).title(),
+                'apellidos': ' '.join(datos_inscrito.get('Apellidos', 'N/A').strip().split()).title(),
+                'carrera': datos_inscrito.get('Carrera', ''),
+                'semestre': SEMESTRES.get(str(datos_inscrito.get('Semestre', 'CINU')).upper(), 0)
+            }
+            if not all([datos_para_db['carrera'] in CARRERAS, datos_para_db['nombres'] not in ['N/A', ''], datos_para_db['apellidos'] not in ['N/A', '']]):
+                mostrar_mensaje_advertencia("Datos Incompletos", "El registro del inscrito no tiene la información requerida (Nombres, Apellidos, Carrera válida) para ser agregado como becado.")
+                return
+        except (ValueError, KeyError) as e:
+            mostrar_error_critico("Error de Datos", f"No se pudo procesar la información del estudiante inscrito: {e}")
+            return
+        try:
+            cursor.execute("INSERT INTO becados (tipo_cedula, cedula, nombres, apellidos, carrera, semestre) VALUES (?, ?, ?, ?, ?, ?)",
+                           (datos_para_db['tipo_cedula'], datos_para_db['cedula'], datos_para_db['nombres'], datos_para_db['apellidos'], datos_para_db['carrera'], datos_para_db['semestre']))
+            self.conexion_bd.commit()
+            self.cargar_estudiantes_becados()
+            mostrar_mensaje_info("Éxito", f"Estudiante {datos_para_db['nombres']} {datos_para_db['apellidos']} ha sido agregado a los becados.")
+        except sqlite3.Error as e:
+            mostrar_error_critico("Error de DB", f"No se pudo agregar el estudiante: {e}")
+
+    def _accion_quitar_desde_dialogo(self, datos_becado, dialogo):
+        if self._eliminar_becado_por_id(datos_becado['id'], datos_becado['nombres']):
+            dialogo.accept()
+
+    def _accion_editar_desde_dialogo(self, datos_becado, dialogo):
+        dialogo.accept()
+        self._editar_becado_con_datos(datos_becado)
 
     def obtener_datos_df(self, tipo_tabla):
         if tipo_tabla == 'becados':
