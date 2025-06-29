@@ -29,7 +29,7 @@ except ImportError:
 
 # --- Constantes ---
 CARRERAS = [
-    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones", "Ingeniería Mecánica",
+    "Ingeniería de Sistemas", "Ingeniería de Telecomunicaciones", "Ingeniería Mecánica", 
     "Ingeniería Eléctrica", "Contaduría", "Administración de Desastres"
 ]
 SEMESTRES = {
@@ -44,6 +44,136 @@ LIMITE_BECADOS = 216
 COLOR_VERDE_PASTEL = QColor(204, 255, 204)
 COLOR_AMARILLO_PASTEL = QColor(255, 255, 204)
 COLOR_ROJO_PASTEL = QColor(255, 204, 204)
+
+# --- Contenido del README para la ventana "Acerca de" ---
+README_CONTENT = '''
+
+# Gestor de Estudiantes y Becas (Zon-Becados)
+
+Este es un programa de escritorio diseñado para facilitar la gestión y auditoría de listas de estudiantes, comparando un registro general de "Estudiantes Inscritos" con una lista oficial de "Estudiantes Becados".
+
+La aplicación permite identificar visualmente qué estudiantes están en ambas listas, cuáles solo en una, y si existen discrepancias en sus datos, optimizando el proceso de validación de becas.
+
+---
+
+### **Información del Creador**
+
+* **Autor**: Ricardo Pacheco
+* **Sección**: 05S-2614-D1
+* **Carrera**: Ingeniería de Sistemas
+* **Universidad**: Universidad Nacional Experimental Politécnica de la Fuerza Armada (UNEFA)
+* **Asignatura**: Lenguaje de Programación II
+
+---
+
+## ✨ Características Principales
+
+* **Gestión Dual de Listas:** Administra y visualiza dos tablas de estudiantes por separado.
+* **Comparación Inteligente:** Con un solo clic, colorea los registros para identificar concordancias, diferencias y errores en los datos.
+* **Filtros Avanzados:** Busca por cualquier dato (nombre, cédula, etc.) y filtra por carrera, semestre o tipo de cédula. Los filtros de color permiten aislar problemas específicos.
+* **Títulos Dinámicos:** Los títulos de las tablas se actualizan en tiempo real para reflejar el filtro activo y el número de registros visibles.
+* **Exportación de Reportes:** Genera archivos en formato **Excel, CSV y PDF**. Si hay un filtro activo, el reporte solo incluirá los datos visibles.
+* **Interfaz Adaptable:** La ventana se ajusta automáticamente al tamaño de la pantalla para una mejor experiencia de usuario.
+* **Validación de Datos:** Sistema robusto que valida los datos al momento de cargar archivos, evitando errores de formato.
+
+---
+
+## 🚀 Manual de Usuario
+
+### Instalación y Ejecución
+
+Tienes dos maneras de utilizar este programa:
+
+**Opción 1: Uso del Ejecutable (Recomendado)**
+
+Esta es la forma más fácil y directa, sin necesidad de instalar Python.
+
+1.  Busca la sección de **"Releases"** en el repositorio de GitHub del proyecto.
+2.  Descarga el archivo `.exe` más reciente.
+3.  Guarda el archivo en una carpeta de tu elección.
+4.  **¡Listo!** Haz doble clic en el archivo `.exe` para iniciar el programa. La base de datos (`estudiantes.db`) se creará automáticamente en la misma carpeta.
+
+**Opción 2: Ejecución desde el Código Fuente (Para Desarrolladores)**
+
+Si deseas modificar el código o ejecutarlo en un entorno de desarrollo:
+
+1.  Asegúrate de tener **Python** instalado.
+2.  Clona o descarga este repositorio.
+3.  Abre una terminal en la carpeta del proyecto e instala las dependencias con:
+    ```bash
+    pip install -r requirements.txt
+    ```
+4.  Una vez instaladas, ejecuta el programa con:
+    ```bash
+    python main.py
+    ```
+
+---
+
+### Guía de Uso de la Interfaz
+
+La ventana principal se divide en **Estudiantes Inscritos** (izquierda) y **Estudiantes Becados** (derecha).
+
+#### **Carga de Archivos: Formato Requerido**
+
+Para evitar errores, tus archivos de Excel (`.xlsx`) o CSV (`.csv`) **deben contener obligatoriamente** las siguientes columnas con estos nombres exactos:
+
+| Columna            | Descripción y Reglas de Validación                                      | Ejemplo      |
+| ------------------ | ------------------------------------------------------------------------- | ------------ |
+| **T. Cédula** | Tipo de cédula. Solo acepta `V`, `E` o `P`.                             | `V`          |
+| **Cédula** | Número de cédula. Debe ser un **número** de 6 a 9 dígitos.                | `29850926`   |
+| **Nombres** | Nombres del estudiante. Texto de 3 a 30 caracteres, solo letras y espacios. | `Ana Barbara`|
+| **Apellidos** | Apellidos del estudiante. Texto de 3 a 30 caracteres, solo letras y espacios. | `Borges Verenzuela`  |
+| **Carrera** | Debe coincidir **exactamente** con una de las opciones del programa.      | `Contaduría` |
+| **Semestre** | Acepta el número (`0` a `9`) o el nombre (`CINU`, `1`, `2`, etc.).           | `7`          |
+
+> **Importante:**
+> * Para archivos Excel, los datos **deben estar en la primera hoja** del libro.
+> * El programa buscará esta cabecera en el archivo. Los datos de los estudiantes deben comenzar en la fila inmediatamente inferior. Cualquier fila o columna vacía antes de los datos puede causar problemas.
+
+#### **Funcionalidades Principales**
+
+1.  **Cargar y Limpiar Registros**: Usa los botones correspondientes en cada tabla para poblar o vaciar los datos desde tus archivos.
+
+2.  **Filtros de Búsqueda**:
+    * **Barra de búsqueda**: Escribe una o más palabras para buscar en todos los campos (ej: `ana contaduría`).
+    * **Listas desplegables**: Selecciona una carrera, semestre o tipo de cédula para acotar los resultados.
+
+3.  **Botón "Colorear Registros"**:
+    * Activa el modo de comparación. Los colores tienen el siguiente significado:
+        * **Verde**: El estudiante existe en **ambas** listas.
+        * **Rojo**: El estudiante solo existe en **una** de las listas.
+        * **Amarillo**: El estudiante está en ambas listas (verde), pero uno o más de sus datos (nombre, carrera, etc.) **no coinciden**. Las celdas específicas con la discrepancia se pintarán de amarillo.
+
+4.  **Filtrar por Color**: Una vez coloreados los registros, usa los checkboxes "Verde", "Amarillo" o "Rojo" para aislar y analizar los casos que te interesen. Son excluyentes, solo puedes activar uno a la vez.
+
+5.  **Títulos con Contadores**: El título de cada tabla siempre te mostrará cuántos registros son visibles en ese momento, actualizándose con cada filtro que apliques. `Ej: Estudiantes Becados (no inscritos) (4)`.
+
+6.  **Exportar Reportes**: El botón "Exportar" en la tabla de becados te permite guardar los datos **actualmente visibles** en Excel, CSV o PDF. Si tienes un filtro de color activo, el título del reporte reflejará ese filtro.
+
+7.  **Menú Superior**:
+    * **Base de Datos**: Te permite guardar una copia de seguridad de tus datos, cargar una copia previa o limpiar toda la base de datos para empezar de cero.
+    * **Ayuda**: Contiene este manual y un enlace al repositorio.
+
+---
+
+## 🛠️ Librerías Utilizadas
+
+* **PySide6**: Para la creación de la interfaz gráfica de usuario.
+* **Pandas**: Para la manipulación, lectura y validación de datos.
+* **openpyxl**: Requerido por Pandas para trabajar con archivos de Excel (`.xlsx`).
+* **xlsxwriter**: Requerido por Pandas para escribir archivos Excel con formato.
+* **ReportLab**: Para la generación de reportes en formato PDF.
+
+---
+
+## 📄 Licencia
+
+Este proyecto es de código abierto. Siéntete libre de usarlo y modificarlo.
+
+Si deseas contribuir, reportar un error o tienes alguna sugerencia, puedes hacerlo a través de la sección de **"Issues"** del repositorio en GitHub.
+
+'''
 
 # --- Funciones de Ayuda ---
 def normalizar_texto(texto):
@@ -89,7 +219,6 @@ def inicializar_bd():
 # --- Diálogo para Ver Información del Estudiante ---
 class DialogoVerEstudiante(QDialog):
     """Diálogo para mostrar la información completa de un estudiante y permitir acciones."""
-    # Signals para comunicar acciones a la ventana principal
     agregar_a_becados = Signal()
     quitar_de_becados = Signal()
     editar_becado = Signal()
@@ -98,31 +227,23 @@ class DialogoVerEstudiante(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Información del Estudiante")
         self.setMinimumWidth(250)
-
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
-
         mapa_etiquetas = {
             'T. Cédula': 'T. Cédula:', 'Cédula': 'Cédula:',
             'Nombres': 'Nombres:', 'Apellidos': 'Apellidos:',
             'Carrera': 'Carrera:', 'Semestre': 'Semestre:'
         }
-        
         campos_conocidos = list(mapa_etiquetas.keys())
         campos_disponibles = list(datos_estudiante.keys())
-        
         for campo in campos_conocidos:
             if campo in datos_estudiante:
                 form_layout.addRow(QLabel(f"<b>{mapa_etiquetas[campo]}</b>"), QLabel(str(datos_estudiante[campo])))
-
         for campo in campos_disponibles:
             if campo not in campos_conocidos:
                 form_layout.addRow(QLabel(f"<b>{campo}:</b>"), QLabel(str(datos_estudiante[campo])))
-
         main_layout.addLayout(form_layout)
         main_layout.addStretch(1)
-
-        # Botón de acción superior (expandido)
         boton_accion_superior = None
         if tipo_tabla == 'inscritos':
             boton_accion_superior = QPushButton("Agregar a Becados")
@@ -132,28 +253,20 @@ class DialogoVerEstudiante(QDialog):
                 boton_accion_superior.setToolTip("Este estudiante ya se encuentra en la lista de becados.")
             else:
                 boton_accion_superior.clicked.connect(self.agregar_a_becados.emit)
-            
         elif tipo_tabla == 'becados':
             boton_accion_superior = QPushButton("Quitar de Becados")
             boton_accion_superior.clicked.connect(self.quitar_de_becados.emit)
-
         if boton_accion_superior:
             main_layout.addWidget(boton_accion_superior)
-            
-        # Layout para los botones inferiores (expandidos)
         layout_botones_inferior = QHBoxLayout()
-
         if tipo_tabla == 'becados':
             boton_editar = QPushButton("Editar")
             boton_editar.clicked.connect(self.editar_becado.emit)
             layout_botones_inferior.addWidget(boton_editar)
-
         boton_ok = QPushButton("OK")
         boton_ok.clicked.connect(self.accept)
         layout_botones_inferior.addWidget(boton_ok)
-        
         main_layout.addLayout(layout_botones_inferior)
-
 
 # --- Diálogo para Agregar/Editar Estudiante ---
 class DialogoEstudiante(QDialog):
@@ -248,8 +361,6 @@ class AppGestorBecas(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gestor de Estudiantes y Becas")
-        
-        # --- Configuración dinámica del tamaño de la ventana ---
         screen = QApplication.primaryScreen()
         if screen:
             available_geometry = screen.availableGeometry()
@@ -259,16 +370,12 @@ class AppGestorBecas(QMainWindow):
             self.move(available_geometry.center() - self.rect().center())
         else:
             self.resize(1200, 700)
-
         self.setMinimumSize(1024, 600)
-
         if os.path.exists('icon.ico'):
             self.setWindowIcon(QIcon('icon.ico'))
-        
         self.boton_agregar_becado = None
         self.modo_comparacion = False
         self.boton_comparar = None
-
         self.conexion_bd = sqlite3.connect(ARCHIVO_BD)
         self.conexion_bd.row_factory = sqlite3.Row
         self.todos_los_becados = []
@@ -281,27 +388,21 @@ class AppGestorBecas(QMainWindow):
 
     def _crear_barra_menu(self):
         menu_bar = self.menuBar()
-        
         menu_db = menu_bar.addMenu("Base de Datos")
         accion_guardar = QAction("Guardar", self)
         accion_guardar.triggered.connect(self.guardar_bd)
         menu_db.addAction(accion_guardar)
-
         accion_cargar = QAction("Cargar", self)
         accion_cargar.triggered.connect(self.cargar_bd)
         menu_db.addAction(accion_cargar)
-        
         menu_db.addSeparator()
-
         accion_limpiar = QAction("Limpiar", self)
         accion_limpiar.triggered.connect(self.limpiar_bd)
         menu_db.addAction(accion_limpiar)
-
         menu_ayuda = menu_bar.addMenu("Ayuda")
         accion_acerca_de = QAction("Acerca de", self)
         accion_acerca_de.triggered.connect(self.mostrar_acerca_de)
         menu_ayuda.addAction(accion_acerca_de)
-        
         accion_github = QAction("GitHub", self)
         accion_github.triggered.connect(self.abrir_github)
         menu_ayuda.addAction(accion_github)
@@ -310,7 +411,6 @@ class AppGestorBecas(QMainWindow):
         if self.conexion_bd:
             self.conexion_bd.close()
             self.conexion_bd = None
-
         try:
             ruta_guardado, _ = QFileDialog.getSaveFileName(self, "Guardar Base de Datos", "copia_estudiantes.db", "Archivos de Base de Datos (*.db)")
             if ruta_guardado:
@@ -326,7 +426,6 @@ class AppGestorBecas(QMainWindow):
         ruta_archivo, _ = QFileDialog.getOpenFileName(self, "Cargar Base de Datos", "", "Archivos de Base de Datos (*.db)")
         if not ruta_archivo:
             return
-
         try:
             conn_test = sqlite3.connect(ruta_archivo)
             cursor_test = conn_test.cursor()
@@ -338,7 +437,6 @@ class AppGestorBecas(QMainWindow):
         except Exception as e:
             mostrar_error_critico("Archivo Inválido", f"El archivo seleccionado no es una base de datos válida para esta aplicación.\n\nError: {e}")
             return
-
         msg_box = QMessageBox(self)
         msg_box.setIcon(QMessageBox.Warning)
         msg_box.setWindowTitle("Confirmar Carga")
@@ -346,7 +444,6 @@ class AppGestorBecas(QMainWindow):
         boton_si = msg_box.addButton("Sí, cargar", QMessageBox.YesRole)
         msg_box.addButton("No", QMessageBox.NoRole)
         msg_box.exec()
-
         if msg_box.clickedButton() == boton_si:
             if self.conexion_bd:
                 self.conexion_bd.close()
@@ -370,7 +467,6 @@ class AppGestorBecas(QMainWindow):
         boton_si = msg_box.addButton("Sí, borrar todo", QMessageBox.YesRole)
         msg_box.addButton("No", QMessageBox.NoRole)
         msg_box.exec()
-        
         if msg_box.clickedButton() == boton_si:
             try:
                 cursor = self.conexion_bd.cursor()
@@ -378,10 +474,8 @@ class AppGestorBecas(QMainWindow):
                 cursor.execute("DELETE FROM inscritos")
                 cursor.execute("DELETE FROM inscritos_encabezados")
                 self.conexion_bd.commit()
-                
                 self.cargar_estudiantes_becados()
                 self.cargar_estudiantes_inscritos_desde_bd()
-                
                 mostrar_mensaje_info("Éxito", "Todos los registros han sido borrados de la base de datos.")
             except sqlite3.Error as e:
                 mostrar_error_critico("Error de Base de Datos", f"No se pudieron borrar los registros: {e}")
@@ -390,24 +484,14 @@ class AppGestorBecas(QMainWindow):
         dialogo = QDialog(self)
         dialogo.setWindowTitle("Acerca de Gestor de Becas")
         dialogo.setMinimumSize(600, 400)
-        
         layout = QVBoxLayout(dialogo)
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
-        
-        try:
-            with open("README.md", "r", encoding="utf-8") as f:
-                readme_content = f.read()
-                text_edit.setMarkdown(readme_content)
-        except FileNotFoundError:
-            text_edit.setText("No se encontró el archivo README.md.")
-        
+        text_edit.setMarkdown(README_CONTENT)
         layout.addWidget(text_edit)
-        
         button_box = QDialogButtonBox(QDialogButtonBox.Ok)
         button_box.accepted.connect(dialogo.accept)
         layout.addWidget(button_box)
-        
         dialogo.exec()
 
     def abrir_github(self):
@@ -417,22 +501,18 @@ class AppGestorBecas(QMainWindow):
         widget_principal = QWidget(self)
         self.setCentralWidget(widget_principal)
         diseno_principal = QVBoxLayout(widget_principal)
-
         layout_tablas = QHBoxLayout()
         self.grupo_inscritos = self.crear_grupo_tabla("Estudiantes Inscritos", "inscritos")
         self.tabla_inscritos, self.modelo_inscritos = self._crear_vista_tabla()
         self.tabla_inscritos.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'inscritos'))
         self.grupo_inscritos.layout().addWidget(self.tabla_inscritos)
-        
         self.grupo_becados = self.crear_grupo_tabla("Estudiantes Becados", "becados")
         self.tabla_becados, self.modelo_becados = self._crear_vista_tabla()
         self.tabla_becados.doubleClicked.connect(lambda index: self.ver_registro_doble_clic(index, 'becados'))
         self.grupo_becados.layout().addWidget(self.tabla_becados)
-
         layout_tablas.addWidget(self.grupo_inscritos, 1)
         layout_tablas.addWidget(self.grupo_becados, 1)
         diseno_principal.addLayout(layout_tablas)
-
         layout_controles_comp = QHBoxLayout()
         self.boton_comparar = QPushButton("Colorear Registros")
         font = QFont()
@@ -442,20 +522,17 @@ class AppGestorBecas(QMainWindow):
         self.boton_comparar.setMinimumHeight(40)
         self.boton_comparar.clicked.connect(self.alternar_modo_comparacion)
         layout_controles_comp.addWidget(self.boton_comparar, 2)
-
         grupo_filtros_color = QGroupBox("Filtrar por Color")
         layout_filtros_color = QHBoxLayout()
         self.check_verde = QCheckBox("Verde")
         self.check_amarillo = QCheckBox("Amarillo")
         self.check_rojo = QCheckBox("Rojo")
-
         self.grupo_botones_color = QButtonGroup(self)
         self.grupo_botones_color.setExclusive(False)
         self.grupo_botones_color.addButton(self.check_verde)
         self.grupo_botones_color.addButton(self.check_amarillo)
         self.grupo_botones_color.addButton(self.check_rojo)
         self.grupo_botones_color.buttonClicked.connect(self._on_color_filter_clicked)
-
         layout_filtros_color.addStretch()
         layout_filtros_color.addWidget(self.check_verde)
         layout_filtros_color.addWidget(self.check_amarillo)
@@ -463,16 +540,13 @@ class AppGestorBecas(QMainWindow):
         layout_filtros_color.addStretch()
         grupo_filtros_color.setLayout(layout_filtros_color)
         layout_controles_comp.addWidget(grupo_filtros_color, 1)
-        
         diseno_principal.addLayout(layout_controles_comp)
-
         layout_recuentos = QHBoxLayout()
         self.lbl_inscritos = QLabel("Estudiantes inscritos: --")
         self.lbl_becados = QLabel("Estudiantes becados: --")
         self.lbl_becados_no_inscritos = QLabel("Estudiantes becados no inscritos: --")
         self.lbl_incongruentes = QLabel("Estudiantes con datos incongruentes: --")
         self.lbl_cupos = QLabel("Cupos disponibles: --")
-        
         for lbl in [self.lbl_inscritos, self.lbl_becados, self.lbl_becados_no_inscritos, self.lbl_incongruentes, self.lbl_cupos]:
             lbl.setAlignment(Qt.AlignCenter)
             layout_recuentos.addWidget(lbl)
@@ -498,30 +572,23 @@ class AppGestorBecas(QMainWindow):
     def crear_grupo_tabla(self, titulo, tipo_tabla):
         grupo = QGroupBox(titulo)
         layout = QVBoxLayout(grupo)
-        
         controles_superiores = QHBoxLayout()
-        
         boton_cargar = QPushButton("Cargar Registros")
         boton_cargar.clicked.connect(lambda: self.cargar_registros_a_tabla(tipo_tabla))
         controles_superiores.addWidget(boton_cargar)
-        
         boton_limpiar = QPushButton("Limpiar Registros")
         boton_limpiar.clicked.connect(lambda: self.limpiar_registros_tabla(tipo_tabla))
         controles_superiores.addWidget(boton_limpiar)
-
         if tipo_tabla == "becados":
             self.boton_agregar_becado = QPushButton("Agregar")
             self.boton_agregar_becado.clicked.connect(self.agregar_estudiante_becado)
             controles_superiores.addWidget(self.boton_agregar_becado)
-
             boton_editar = QPushButton("Editar")
             boton_editar.clicked.connect(self.editar_estudiante_becado)
             controles_superiores.addWidget(boton_editar)
-
             boton_eliminar = QPushButton("Eliminar")
             boton_eliminar.clicked.connect(self.eliminar_estudiante_becado)
             controles_superiores.addWidget(boton_eliminar)
-
             boton_exportar = QPushButton("Exportar")
             menu_exportar = QMenu(self)
             accion_excel = QAction("Exportar a Excel (.xlsx)", self)
@@ -536,30 +603,24 @@ class AppGestorBecas(QMainWindow):
                 menu_exportar.addAction(accion_pdf)
             boton_exportar.setMenu(menu_exportar)
             controles_superiores.addWidget(boton_exportar)
-
         layout.addLayout(controles_superiores)
-        
         filtros_layout = QHBoxLayout()
         setattr(self, f"filtro_busqueda_{tipo_tabla}", QLineEdit())
         setattr(self, f"filtro_carrera_{tipo_tabla}", QComboBox())
         setattr(self, f"filtro_semestre_{tipo_tabla}", QComboBox())
         setattr(self, f"filtro_tipocedula_{tipo_tabla}", QComboBox())
-
         filtro_busqueda = getattr(self, f"filtro_busqueda_{tipo_tabla}")
         filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}")
         filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}")
         filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}")
-
         filtro_busqueda.setPlaceholderText("Buscar...")
         filtro_carrera.addItems(["Todas las Carreras"] + CARRERAS)
         filtro_semestre.addItems(["Todos los Semestres"] + list(SEMESTRES.keys()))
         filtro_tipocedula.addItems(["Todos los Tipos"] + ['V', 'E', 'P'])
-        
         filtros_layout.addWidget(filtro_busqueda)
         filtros_layout.addWidget(filtro_carrera)
         filtros_layout.addWidget(filtro_semestre)
         filtros_layout.addWidget(filtro_tipocedula)
-
         filtro_busqueda.textChanged.connect(self._aplicar_filtros)
         filtro_carrera.currentTextChanged.connect(self._aplicar_filtros)
         filtro_semestre.currentTextChanged.connect(self._aplicar_filtros)
@@ -571,7 +632,6 @@ class AppGestorBecas(QMainWindow):
         """Habilita o deshabilita botones según el estado de la aplicación."""
         count_becados = len(self.todos_los_becados)
         limite_alcanzado = count_becados >= LIMITE_BECADOS
-        
         if self.boton_agregar_becado:
             self.boton_agregar_becado.setEnabled(not limite_alcanzado)
             if limite_alcanzado:
@@ -583,7 +643,6 @@ class AppGestorBecas(QMainWindow):
         """Actualiza los títulos de los QGroupBox según el filtro de color activo y el conteo de filas visibles."""
         titulo_extra_becados = ""
         titulo_extra_inscritos = ""
-
         if self.modo_comparacion:
             if self.check_verde.isChecked():
                 titulo_extra_becados = " (inscritos)"
@@ -594,46 +653,37 @@ class AppGestorBecas(QMainWindow):
             elif self.check_rojo.isChecked():
                 titulo_extra_becados = " (no inscritos)"
                 titulo_extra_inscritos = " (no becados)"
-        
         becados_visibles = sum(1 for i in range(self.modelo_becados.rowCount()) if not self.tabla_becados.isRowHidden(i))
         inscritos_visibles = sum(1 for i in range(self.modelo_inscritos.rowCount()) if not self.tabla_inscritos.isRowHidden(i))
-
         self.grupo_becados.setTitle(f"Estudiantes Becados{titulo_extra_becados} ({becados_visibles})")
         self.grupo_inscritos.setTitle(f"Estudiantes Inscritos{titulo_extra_inscritos} ({inscritos_visibles})")
-
 
     def _aplicar_filtros(self):
         for tipo_tabla in ['becados', 'inscritos']:
             tabla = getattr(self, f"tabla_{tipo_tabla}")
             modelo = getattr(self, f"modelo_{tipo_tabla}")
-            
             filtro_carrera = getattr(self, f"filtro_carrera_{tipo_tabla}").currentText()
             filtro_semestre = getattr(self, f"filtro_semestre_{tipo_tabla}").currentText()
             filtro_tipocedula = getattr(self, f"filtro_tipocedula_{tipo_tabla}").currentText()
             texto_busqueda_normalizado = normalizar_texto(getattr(self, f"filtro_busqueda_{tipo_tabla}").text())
             palabras_busqueda = texto_busqueda_normalizado.split()
-
             ver_verde = self.check_verde.isChecked()
             ver_amarillo = self.check_amarillo.isChecked()
             ver_rojo = self.check_rojo.isChecked()
             filtro_color_activo = self.modo_comparacion and (ver_verde or ver_amarillo or ver_rojo)
-
             for row in range(modelo.rowCount()):
                 mostrar_por_texto = True
                 fila_datos = {modelo.horizontalHeaderItem(col).text(): modelo.item(row, col).text() for col in range(modelo.columnCount())}
-                
                 if filtro_carrera != "Todas las Carreras" and fila_datos.get("Carrera") != filtro_carrera:
                     mostrar_por_texto = False
                 if mostrar_por_texto and filtro_semestre != "Todos los Semestres" and fila_datos.get("Semestre") != filtro_semestre:
                     mostrar_por_texto = False
                 if mostrar_por_texto and filtro_tipocedula != "Todos los Tipos" and fila_datos.get("T. Cédula") != filtro_tipocedula:
                     mostrar_por_texto = False
-                
                 if mostrar_por_texto and palabras_busqueda:
                     texto_completo_fila = normalizar_texto(" ".join(fila_datos.values()))
                     if not all(palabra in texto_completo_fila for palabra in palabras_busqueda):
                         mostrar_por_texto = False
-                
                 mostrar_final = mostrar_por_texto
                 if mostrar_por_texto and filtro_color_activo:
                     mostrar_por_color = False
@@ -641,20 +691,15 @@ class AppGestorBecas(QMainWindow):
                     if item_ejemplo:
                         color_fila = item_ejemplo.background().color()
                         tiene_amarillo = any(modelo.item(row, col).background().color() == COLOR_AMARILLO_PASTEL for col in range(modelo.columnCount()))
-                        
                         if ver_amarillo and tiene_amarillo:
                             mostrar_por_color = True
                         elif ver_verde and not tiene_amarillo and color_fila == COLOR_VERDE_PASTEL:
                             mostrar_por_color = True
                         elif ver_rojo and color_fila == COLOR_ROJO_PASTEL:
                             mostrar_por_color = True
-                    
                     mostrar_final = mostrar_por_color
-
                 tabla.setRowHidden(row, not mostrar_final)
-        
         self._actualizar_titulos_grupos()
-
 
     def poblar_tabla_becados(self, datos):
         self.modelo_becados.clear()
@@ -926,11 +971,9 @@ class AppGestorBecas(QMainWindow):
         elif tipo_tabla == 'inscritos':
             datos_para_dialogo = {self.modelo_inscritos.horizontalHeaderItem(col).text(): self.modelo_inscritos.item(index.row(), col).text()
                                   for col in range(self.modelo_inscritos.columnCount())}
-
             cedula_inscrito = datos_para_dialogo.get('Cédula')
             cedulas_becados_set = {str(b['cedula']) for b in self.todos_los_becados}
             es_becado_actualmente = str(cedula_inscrito) in cedulas_becados_set if cedula_inscrito else False
-            
             dialogo = DialogoVerEstudiante(self, datos_estudiante=datos_para_dialogo, tipo_tabla='inscritos', ya_es_becado=es_becado_actualmente)
             dialogo.agregar_a_becados.connect(lambda: self._accion_agregar_desde_dialogo(datos_para_dialogo, dialogo))
             dialogo.exec()
@@ -1011,7 +1054,6 @@ class AppGestorBecas(QMainWindow):
             if cursor.fetchone():
                 mostrar_mensaje_advertencia("Duplicado", f"El estudiante con cédula {cedula_int} ya es un becado.")
                 return
-
             datos_para_db = {
                 'tipo_cedula': datos_inscrito.get('T. Cédula', 'V'), 'cedula': cedula_int,
                 'nombres': ' '.join(datos_inscrito.get('Nombres', '').strip().split()).title(),
@@ -1019,17 +1061,14 @@ class AppGestorBecas(QMainWindow):
                 'carrera': datos_inscrito.get('Carrera', ''),
                 'semestre': SEMESTRES.get(str(datos_inscrito.get('Semestre', '')).upper(), -1) # -1 para indicar error
             }
-
             errores = []
             if not datos_para_db['nombres']: errores.append("Nombres")
             if not datos_para_db['apellidos']: errores.append("Apellidos")
             if datos_para_db['carrera'] not in CARRERAS: errores.append("Carrera (no es válida)")
-            
             if errores:
                 mensaje_error = "No se puede agregar al estudiante. Faltan o son inválidos los siguientes datos:\n\n- " + "\n- ".join(errores)
                 mostrar_mensaje_advertencia("Datos Faltantes o Inválidos", mensaje_error)
                 return
-
         except (ValueError, KeyError) as e:
             mostrar_error_critico("Error de Datos", f"No se pudo procesar la información del estudiante inscrito: {e}")
             return
@@ -1062,10 +1101,8 @@ class AppGestorBecas(QMainWindow):
             tabla = self.tabla_inscritos
             todos_los_datos = self.todos_los_inscritos
             cedula_key = 'Cédula'
-
         if modelo.rowCount() == 0:
             return pd.DataFrame()
-
         filas_visibles_data = []
         cedula_col_idx = -1
         try:
@@ -1073,24 +1110,20 @@ class AppGestorBecas(QMainWindow):
             cedula_col_idx = headers.index("Cédula")
         except ValueError:
             return pd.DataFrame() # No hay columna de cédula para mapear
-
         for row in range(modelo.rowCount()):
             if not tabla.isRowHidden(row):
                 cedula_str = modelo.item(row, cedula_col_idx).text()
                 dato_completo = next((d for d in todos_los_datos if str(d.get(cedula_key)) == cedula_str), None)
                 if dato_completo:
                     filas_visibles_data.append(dato_completo)
-        
         if not filas_visibles_data:
             return pd.DataFrame()
-
         df = pd.DataFrame(filas_visibles_data)
         if tipo_tabla == 'becados':
             df = df.copy() # Evitar SettingWithCopyWarning
             df.rename(columns={'tipo_cedula': 'T. Cédula', 'cedula': 'Cédula', 'nombres': 'Nombres', 'apellidos': 'Apellidos', 'carrera': 'Carrera', 'semestre':'Semestre'}, inplace=True)
             df['Semestre'] = df['Semestre'].apply(lambda x: next((k for k, v in SEMESTRES.items() if v == x), ""))
             df = df[['T. Cédula', 'Cédula', 'Nombres', 'Apellidos', 'Carrera', 'Semestre']]
-
         return df
 
 
@@ -1108,7 +1141,6 @@ class AppGestorBecas(QMainWindow):
         
         titulo_reporte = f"{titulo_base}{titulo_extra}"
 
-        # Mostrar aviso solo si hay un filtro de color activo
         if titulo_extra:
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Question)

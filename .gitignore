@@ -1,20 +1,36 @@
 # Entornos virtuales
 venv/
-env/
 .venv/
+env/
+*.env
 
-# Archivos compilados de Python
+# Archivos de Bytecode y Caches de Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Archivos de la base de datos
-estudiantes.db
-
-# Archivos generados por PyInstaller
-dist/
+# Archivos de PyInstaller
 build/
+dist/
 *.spec
 
-# Archivos de configuración de IDEs comunes
-.idea/
+# Base de datos
+estudiantes.db
+
+# Reportes generados
+*.xlsx
+*.csv
+*.pdf
+
+# Archivos de configuración de IDEs/Editores
 .vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db

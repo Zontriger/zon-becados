@@ -1,5 +1,6 @@
-pandas
 PySide6
-reportlab
+pandas
 openpyxl
 xlsxwriter
+reportlab
+pyinstaller
