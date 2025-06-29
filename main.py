@@ -248,8 +248,25 @@ class AppGestorBecas(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gestor de Estudiantes y Becas")
-        self.setGeometry(100, 100, 1200, 700)
         
+        # --- Configuración dinámica del tamaño de la ventana ---
+        screen = QApplication.primaryScreen()
+        if screen:
+            available_geometry = screen.availableGeometry()
+            # Establecer un tamaño predeterminado del 85% del espacio disponible
+            width = int(available_geometry.width() * 0.85)
+            height = int(available_geometry.height() * 0.85)
+            self.resize(width, height)
+            
+            # Centrar la ventana
+            self.move(available_geometry.center() - self.rect().center())
+        else:
+            # Fallback a un tamaño fijo si no se puede obtener la pantalla
+            self.resize(1200, 700)
+
+        # Establecer un tamaño mínimo para la ventana
+        self.setMinimumSize(1024, 600)
+
         if os.path.exists('icon.ico'):
             self.setWindowIcon(QIcon('icon.ico'))
         
@@ -1235,4 +1252,3 @@ if __name__ == '__main__':
     ventana = AppGestorBecas()
     ventana.show()
     sys.exit(app.exec())
-
