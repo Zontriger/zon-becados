@@ -121,10 +121,7 @@ class DialogoVerEstudiante(QDialog):
         main_layout.addLayout(form_layout)
         main_layout.addStretch(1)
 
-        # Layout para el botón de acción superior (centrado y ajustado al texto)
-        layout_boton_accion = QHBoxLayout()
-        layout_boton_accion.addStretch(1)
-        
+        # Botón de acción superior (expandido)
         boton_accion_superior = None
         if tipo_tabla == 'inscritos':
             boton_accion_superior = QPushButton("Agregar a Becados")
@@ -134,16 +131,13 @@ class DialogoVerEstudiante(QDialog):
                 boton_accion_superior.setToolTip("Este estudiante ya se encuentra en la lista de becados.")
             else:
                 boton_accion_superior.clicked.connect(self.agregar_a_becados.emit)
-            layout_boton_accion.addWidget(boton_accion_superior)
-
+            
         elif tipo_tabla == 'becados':
             boton_accion_superior = QPushButton("Quitar de Becados")
             boton_accion_superior.clicked.connect(self.quitar_de_becados.emit)
-            layout_boton_accion.addWidget(boton_accion_superior)
 
-        layout_boton_accion.addStretch(1)
         if boton_accion_superior:
-            main_layout.addLayout(layout_boton_accion)
+            main_layout.addWidget(boton_accion_superior)
             
         # Layout para los botones inferiores (expandidos)
         layout_botones_inferior = QHBoxLayout()
@@ -954,19 +948,27 @@ class AppGestorBecas(QMainWindow):
             cursor = self.conexion_bd.cursor()
             cursor.execute("SELECT id FROM becados WHERE cedula = ?", (cedula_int,))
             if cursor.fetchone():
-                # Este chequeo es una salvaguarda, la UI ya no debería permitir llegar aquí.
                 mostrar_mensaje_advertencia("Duplicado", f"El estudiante con cédula {cedula_int} ya es un becado.")
                 return
+
             datos_para_db = {
                 'tipo_cedula': datos_inscrito.get('T. Cédula', 'V'), 'cedula': cedula_int,
-                'nombres': ' '.join(datos_inscrito.get('Nombres', 'N/A').strip().split()).title(),
-                'apellidos': ' '.join(datos_inscrito.get('Apellidos', 'N/A').strip().split()).title(),
+                'nombres': ' '.join(datos_inscrito.get('Nombres', '').strip().split()).title(),
+                'apellidos': ' '.join(datos_inscrito.get('Apellidos', '').strip().split()).title(),
                 'carrera': datos_inscrito.get('Carrera', ''),
-                'semestre': SEMESTRES.get(str(datos_inscrito.get('Semestre', 'CINU')).upper(), 0)
+                'semestre': SEMESTRES.get(str(datos_inscrito.get('Semestre', '')).upper(), -1) # -1 para indicar error
             }
-            if not all([datos_para_db['carrera'] in CARRERAS, datos_para_db['nombres'] not in ['N/A', ''], datos_para_db['apellidos'] not in ['N/A', '']]):
-                mostrar_mensaje_advertencia("Datos Incompletos", "El registro del inscrito no tiene la información requerida (Nombres, Apellidos, Carrera válida) para ser agregado como becado.")
+
+            errores = []
+            if not datos_para_db['nombres']: errores.append("Nombres")
+            if not datos_para_db['apellidos']: errores.append("Apellidos")
+            if datos_para_db['carrera'] not in CARRERAS: errores.append("Carrera (no es válida)")
+            
+            if errores:
+                mensaje_error = "No se puede agregar al estudiante. Faltan o son inválidos los siguientes datos:\n\n- " + "\n- ".join(errores)
+                mostrar_mensaje_advertencia("Datos Faltantes o Inválidos", mensaje_error)
                 return
+
         except (ValueError, KeyError) as e:
             mostrar_error_critico("Error de Datos", f"No se pudo procesar la información del estudiante inscrito: {e}")
             return
