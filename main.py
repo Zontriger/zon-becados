@@ -121,25 +121,32 @@ class DialogoVerEstudiante(QDialog):
         main_layout.addLayout(form_layout)
         main_layout.addStretch(1)
 
-        # Botones de acción (arriba de OK)
+        # Layout para el botón de acción superior (centrado y ajustado al texto)
+        layout_boton_accion = QHBoxLayout()
+        layout_boton_accion.addStretch(1)
+        
+        boton_accion_superior = None
         if tipo_tabla == 'inscritos':
-            boton_accion = QPushButton("Agregar a Becados")
+            boton_accion_superior = QPushButton("Agregar a Becados")
             if ya_es_becado:
-                boton_accion.setText("Ya es Becado")
-                boton_accion.setEnabled(False)
-                boton_accion.setToolTip("Este estudiante ya se encuentra en la lista de becados.")
+                boton_accion_superior.setText("Ya es Becado")
+                boton_accion_superior.setEnabled(False)
+                boton_accion_superior.setToolTip("Este estudiante ya se encuentra en la lista de becados.")
             else:
-                boton_accion.clicked.connect(self.agregar_a_becados.emit)
-            main_layout.addWidget(boton_accion)
+                boton_accion_superior.clicked.connect(self.agregar_a_becados.emit)
+            layout_boton_accion.addWidget(boton_accion_superior)
 
         elif tipo_tabla == 'becados':
-            boton_accion = QPushButton("Quitar de Becados")
-            boton_accion.clicked.connect(self.quitar_de_becados.emit)
-            main_layout.addWidget(boton_accion)
+            boton_accion_superior = QPushButton("Quitar de Becados")
+            boton_accion_superior.clicked.connect(self.quitar_de_becados.emit)
+            layout_boton_accion.addWidget(boton_accion_superior)
+
+        layout_boton_accion.addStretch(1)
+        if boton_accion_superior:
+            main_layout.addLayout(layout_boton_accion)
             
-        # Botones de abajo (OK y Editar) - Centrados
+        # Layout para los botones inferiores (expandidos)
         layout_botones_inferior = QHBoxLayout()
-        layout_botones_inferior.addStretch(1) 
 
         if tipo_tabla == 'becados':
             boton_editar = QPushButton("Editar")
@@ -150,7 +157,6 @@ class DialogoVerEstudiante(QDialog):
         boton_ok.clicked.connect(self.accept)
         layout_botones_inferior.addWidget(boton_ok)
         
-        layout_botones_inferior.addStretch(1)
         main_layout.addLayout(layout_botones_inferior)
 
 
