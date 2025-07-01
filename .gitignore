@@ -1,3 +1,6 @@
+# Releases
+releases/
+
 # Entornos virtuales
 venv*/
 .venv*/
