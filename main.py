@@ -16,9 +16,9 @@ try:
         QPushButton, QGroupBox, QFileDialog, QMessageBox, QTableView,
         QAbstractItemView, QHeaderView, QDialog, QLineEdit, QComboBox,
         QFormLayout, QDialogButtonBox, QLabel, QMenu, QCheckBox, QTextEdit,
-        QButtonGroup, QAction
+        QButtonGroup
     )
-    from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon, QColor, QBrush, QFont
+    from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon, QColor, QBrush, QFont, QAction
     from PySide6.QtCore import Qt, Signal
 except ImportError:
     from PySide2.QtWidgets import (

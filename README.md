@@ -32,16 +32,19 @@ La aplicación permite identificar visualmente qué estudiantes están en ambas 
 
 ### Instalación y Ejecución
 
-Tienes dos maneras de utilizar este programa:
+Tienes dos maneras de utilizar este programa.
 
 **Opción 1: Uso del Ejecutable (Recomendado)**
 
-Esta es la forma más fácil y directa, sin necesidad de instalar Python.
+Esta es la forma más fácil y directa de usar la aplicación.
 
-1.  Busca la sección de **"Releases"** en el repositorio de GitHub del proyecto.
-2.  Descarga el archivo `.exe` más reciente.
-3.  Guarda el archivo en una carpeta de tu elección.
-4.  **¡Listo!** Haz doble clic en el archivo `.exe` para iniciar el programa. La base de datos (`estudiantes.db`) se creará automáticamente en la misma carpeta.
+1.  Ve a la sección de **"Releases"** en el repositorio de GitHub del proyecto.
+2.  Encontrarás dos archivos ZIP:
+    * `ZonBecados_x64.zip`: Para sistemas operativos Windows de **64 bits** (la mayoría de las computadoras modernas).
+    * `ZonBecados_x32.zip`: Para sistemas operativos Windows de **32 bits** (computadoras más antiguas).
+3.  Descarga la versión que corresponda a tu computadora.
+4.  Guarda el archivo en una carpeta de tu elección.
+5.  **¡Listo!** Descomprime el ZIP, haz doble clic en el archivo `.exe` para iniciar el programa. La base de datos (`estudiantes.db`) se creará automáticamente en la misma carpeta.
 
 **Opción 2: Ejecución desde el Código Fuente (Para Desarrolladores)**
 
@@ -49,10 +52,7 @@ Si deseas modificar el código o ejecutarlo en un entorno de desarrollo:
 
 1.  Asegúrate de tener **Python** instalado.
 2.  Clona o descarga este repositorio.
-3.  Abre una terminal en la carpeta del proyecto e instala las dependencias con:
-    ```bash
-    pip install -r requirements.txt
-    ```
+3.  Abre una terminal en la carpeta del proyecto e instala las dependencias usando el archivo `requirements` correspondiente a tu sistema.
 4.  Una vez instaladas, ejecuta el programa con:
     ```bash
     python main.py
@@ -107,17 +107,33 @@ Para evitar errores, tus archivos de Excel (`.xlsx`) o CSV (`.csv`) **deben cont
 
 ---
 
-## 🛠️ Librerías Utilizadas
+## 🛠️ Para Desarrolladores
 
-* **PySide6**: Para la creación de la interfaz gráfica de usuario.
+### Librerías Utilizadas
+
+* **PySide6 / PySide2**: Para la creación de la interfaz gráfica de usuario.
 * **Pandas**: Para la manipulación, lectura y validación de datos.
-* **openpyxl**: Requerido por Pandas para trabajar con archivos de Excel (`.xlsx`).
+* **openpyxl / xlrd**: Requeridos por Pandas para trabajar con archivos de Excel (`.xlsx` y `.xls`).
 * **xlsxwriter**: Requerido por Pandas para escribir archivos Excel con formato.
 * **ReportLab**: Para la generación de reportes en formato PDF.
 
+### Compilación a `.exe`
+
+Si has modificado el código y quieres generar un nuevo archivo ejecutable, asegúrate de tener `pyinstaller` instalado (`pip install pyinstaller`) y ejecuta el siguiente comando en la terminal desde la carpeta del proyecto:
+
+```bash
+pyinstaller --onefile --windowed --icon=icon.ico main.py
+```
+
+* `--onefile`: Empaqueta todo en un único archivo ejecutable.
+* `--windowed`: Evita que se abra una consola de comandos al ejecutar la aplicación.
+* `--icon=icon.ico`: Asigna el ícono de la aplicación.
+
+El `.exe` final se encontrará en la carpeta `dist` que se creará automáticamente.
+
 ---
 
-## 📄 Licencia
+## 📄 Licencia y Contribuciones
 
 Este proyecto es de código abierto. Siéntete libre de usarlo y modificarlo.
 
