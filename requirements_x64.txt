@@ -1,0 +1,8 @@
+PySide6==6.4.0
+pandas==1.5.3
+numpy==1.24.4
+openpyxl==3.1.2
+xlsxwriter==3.1.9
+reportlab==4.1.0
+pyinstaller==5.13.2
+xlrd==2.0.1

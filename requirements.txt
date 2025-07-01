@@ -1,8 +1,0 @@
-PySide6
-pandas
-numpy
-openpyxl
-xlsxwriter
-reportlab
-pyinstaller
-xlrd
